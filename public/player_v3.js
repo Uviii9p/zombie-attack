@@ -12,6 +12,7 @@ export class Player {
         this.coins = 0;
         this.armor = 0;
         this.respawnsLeft = 5;
+        this.flashlight = null;
 
         // Base Props (Define everything BEFORE calling any methods like respawn)
         this.velocity = new THREE.Vector3();
@@ -26,6 +27,10 @@ export class Player {
         this.ammoReserves = { 'AK47': 90, 'Sniper': 15, 'RPG': 3 };
         this.isDriving = false;
         this.currentVehicle = null;
+        this.flashlight = new THREE.SpotLight(0xffffff, 2, 25, Math.PI / 4, 0.4);
+        this.flashlight.visible = true;
+        this.scene.add(this.flashlight);
+        this.scene.add(this.flashlight.target);
 
         // Model
         this.group = new THREE.Group();
@@ -245,6 +250,9 @@ export class Player {
 
         for (let wall of walls) {
             const wallBox = new THREE.Box3().setFromObject(wall);
+            // Ignore floors if we are moving horizontally, we'll handle vertical snap later
+            if (wall.userData.type === 'floor' && wallBox.max.y < this.group.position.y + 0.8) continue;
+
             if (playerBoxX.intersectsBox(wallBox)) {
                 xHit = true;
                 break;
@@ -267,6 +275,9 @@ export class Player {
 
         for (let wall of walls) {
             const wallBox = new THREE.Box3().setFromObject(wall);
+            // Ignore floors if we are moving horizontally
+            if (wall.userData.type === 'floor' && wallBox.max.y < this.group.position.y + 0.8) continue;
+
             if (playerBoxZ.intersectsBox(wallBox)) {
                 zHit = true;
                 break;
@@ -297,13 +308,14 @@ export class Player {
 
         for (let floor of floors) {
             const floorBox = new THREE.Box3().setFromObject(floor);
-            // Check if player's horizontal bounding box (small center core) overlaps floor bounds
-            const buffer = 0.3;
+            // Check if player's horizontal bounding box overlaps floor bounds
+            const buffer = 0.6; // Wider buffer for stairs
             if (feetPos.x >= floorBox.min.x - buffer && feetPos.x <= floorBox.max.x + buffer &&
                 feetPos.z >= floorBox.min.z - buffer && feetPos.z <= floorBox.max.z + buffer) {
 
-                // If dropping into floor OR walking up onto it (step-up height 0.6)
-                if (nextY <= floorBox.max.y + 0.1 && nextY >= floorBox.max.y - 0.7) {
+                // If dropping into floor OR walking up onto it (step-up height 0.8)
+                if (nextY <= floorBox.max.y + 0.15 && nextY >= floorBox.max.y - 0.8) {
+                    // Check if the change is a step-up (don't snap if too far below)
                     nextY = floorBox.max.y;
                     groundedOnObject = true;
                     this.velocity.y = 0;
@@ -324,6 +336,7 @@ export class Player {
 
         this.group.position.y = nextY;
         this.direction.set(this.velocity.x, 0, this.velocity.z);
+        this.updateFlashlight();
     }
 
     updateCamera() {
@@ -349,10 +362,31 @@ export class Player {
         else this.viewMode = this.viewMode === 'FPP' ? 'TPP' : 'FPP';
     }
 
+    damageEffect() {
+        const overlay = document.getElementById('damage-overlay');
+        if (overlay) {
+            overlay.style.opacity = '0.7';
+            setTimeout(() => overlay.style.opacity = '0', 200);
+        }
+    }
+
+    toggleFlashlight() {
+        if (this.flashlight) this.flashlight.visible = !this.flashlight.visible;
+    }
+
     takeDamage(amount) {
         audioSystem.playPlayerHit();
+        this.damageEffect();
         this.health -= amount * (1 - (this.armor * 0.15));
         return this.health <= 0;
+    }
+
+    updateFlashlight() {
+        if (this.flashlight) {
+            this.flashlight.position.copy(this.camera.position);
+            const dir = new THREE.Vector3(0, 0, -1).applyEuler(this.mouseRotation);
+            this.flashlight.target.position.copy(this.camera.position).add(dir.multiplyScalar(10));
+        }
     }
 
     upgradeArmor() {

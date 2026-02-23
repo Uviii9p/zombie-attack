@@ -325,17 +325,17 @@ class Game {
             if (level < 2) {
                 // Add ceiling with a hole for stairs (hole on one side)
                 const ceilT = 0.2;
-                addPart(new THREE.BoxGeometry(size, ceilT, size * 0.6), floorMat, 0, y + 4, size * 0.2, 0, 'floor');
-                addPart(new THREE.BoxGeometry(size * 0.5, ceilT, size * 0.4), floorMat, -size * 0.25, y + 4, -size * 0.3, 0, 'floor');
+                addPart(new THREE.BoxGeometry(size, ceilT, size * 0.5), floorMat, 0, y + 4, size * 0.25, 0, 'floor');
+                addPart(new THREE.BoxGeometry(size * 0.5, ceilT, size * 0.5), floorMat, -size * 0.25, y + 4, -size * 0.25, 0, 'floor');
             }
         };
 
         const buildStairs = (level) => {
             const baseY = level * 4;
-            const stepCount = 12; // More steps for smoother climb
+            const stepCount = 14;
             const stepH = 4 / stepCount;
-            const stepW = 3;
-            const stepD = 1.8; // Deeper steps to prevent phasing
+            const stepW = 3.5;
+            const stepD = 2.0;
 
             for (let i = 0; i < stepCount; i++) {
                 addPart(
@@ -343,7 +343,7 @@ class Game {
                     trimMat,
                     3.5,
                     baseY + (i * stepH) + stepH / 2,
-                    -4 + (i * 0.35), // Overlapping slightly
+                    -5 + (i * 0.35), // Fit within hole (ends at ~ -0.45)
                     0,
                     'floor'
                 );
@@ -381,7 +381,7 @@ class Game {
             const w2 = new THREE.Mesh(winGeo, windowMat); w2.position.set(-2, y, z); this.house.add(w2);
 
             // Light for floors
-            const light = new THREE.PointLight(0xffaa00, 0, 10);
+            const light = new THREE.PointLight(0xffaa00, 0, 15);
             light.position.set(0, l * 4 + 2.5, 0);
             this.house.add(light);
             this.houseLights.push(light);
@@ -405,6 +405,18 @@ class Game {
 
         searchlightGroup.position.set(0, topY, 0);
         this.house.add(searchlightGroup);
+
+        // Crates for "survival" look
+        const crateGeo = new THREE.BoxGeometry(1, 1, 1);
+        const crateMat = new THREE.MeshStandardMaterial({ color: 0x5d4037 });
+        for (let i = 0; i < 5; i++) {
+            const crate = new THREE.Mesh(crateGeo, crateMat);
+            crate.position.set(-3 + Math.random() * 6, 0.5, -3 + Math.random() * 6);
+            crate.rotation.y = Math.random() * Math.PI;
+            crate.castShadow = true;
+            this.house.add(crate);
+            this.houseColliders.push(crate);
+        }
 
         this.scene.add(this.house);
     }
@@ -569,6 +581,7 @@ class Game {
                 this.ui.updateAmmo(this.weaponSystem.currentWeapon.ammo, this.ui.isAdmin ? '∞' : this.player.ammoReserves[m[e.code]]);
             }
         }
+        if (e.code === 'KeyF') { audioSystem.playClick(); this.player.toggleFlashlight(); }
     }
 
     triggerReload() {
@@ -649,16 +662,17 @@ class Game {
         const intensity = Math.max(0, (nightFactor - (1 - lightThreshold)) / lightThreshold);
 
         if (this.houseLights) {
-            this.houseLights.forEach(l => l.intensity = intensity * 15);
+            this.houseLights.forEach(l => l.intensity = intensity * 25);
         }
         if (this.searchlight) {
-            this.searchlight.intensity = intensity * 100;
+            this.searchlight.intensity = intensity * 150;
         }
     }
 
     loop() {
         requestAnimationFrame(() => this.loop());
         const d = 0.016;
+        this.updateDayNight(d);
 
         if (!this.gameStarted || this.isGameOver || this.isShopOpen || this.isBackpackOpen || this.isSettingsOpen) {
             this.renderer.render(this.scene, this.camera);
