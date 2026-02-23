@@ -125,9 +125,11 @@ function getRoomData(roomCode) {
             name: p.name,
             ready: p.ready,
             isHost: p.id === room.hostId,
-            avatar: p.avatar
+            avatar: p.avatar,
+            connected: p.connected
         })),
         gameStarted: room.gameStarted,
+        currentWave: room.currentWave || 1,
         maxPlayers: room.maxPlayers
     };
 }
@@ -143,8 +145,9 @@ io.on('connection', (socket) => {
         const room = {
             code,
             hostId: socket.id,
-            players: [{ id: socket.id, name: playerName, ready: false, avatar: avatar || 0 }],
+            players: [{ id: socket.id, name: playerName, ready: false, avatar: avatar || 0, connected: true }],
             gameStarted: false,
+            currentWave: 1,
             maxPlayers: 4,
             createdAt: Date.now()
         };
@@ -166,11 +169,12 @@ io.on('connection', (socket) => {
 
         const existingPlayer = room.players.find(p => p.name === playerName);
         if (existingPlayer) {
-            // Reconnecting/Rejoining: update ID
+            // Reconnecting/Rejoining: update ID and mark as connected
             existingPlayer.id = socket.id;
+            existingPlayer.connected = true;
             console.log(`${playerName} rejoined room ${code} (ID updated)`);
         } else {
-            room.players.push({ id: socket.id, name: playerName, ready: false, avatar: avatar || 0 });
+            room.players.push({ id: socket.id, name: playerName, ready: false, avatar: avatar || 0, connected: true });
             console.log(`${playerName} joined room ${code}`);
         }
 
@@ -276,6 +280,8 @@ io.on('connection', (socket) => {
 
     socket.on('wave-start-sync', (wave) => {
         if (!currentRoom) return;
+        const room = rooms.get(currentRoom);
+        if (room) room.currentWave = wave;
         socket.to(currentRoom).emit('wave-start-sync', wave);
     });
 
@@ -285,11 +291,22 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         console.log(`Player disconnected: ${socket.id}`);
-        // Notify room that player left so their mesh gets removed
         if (currentRoom) {
-            io.to(currentRoom).emit('player-left', { id: socket.id });
+            const room = rooms.get(currentRoom);
+            if (room) {
+                const player = room.players.find(p => p.id === socket.id);
+                if (player) {
+                    player.connected = false;
+                    player.lastDisconnectedAt = Date.now();
+                }
+                // Notify room that player left so their mesh gets removed
+                io.to(currentRoom).emit('player-left', { id: socket.id });
+
+                // If everyone is disconnected, the cleanup interval will handle it, 
+                // but let's notify the room if anyone is still there
+                io.to(currentRoom).emit('room-updated', getRoomData(currentRoom));
+            }
         }
-        leaveRoom(socket);
     });
 
     function leaveRoom(sock) {
@@ -319,16 +336,33 @@ io.on('connection', (socket) => {
     }
 });
 
-// Cleanup stale rooms every 5 minutes
+// Cleanup stale rooms and disconnected players
 setInterval(() => {
     const now = Date.now();
     for (const [code, room] of rooms) {
-        if (now - room.createdAt > 3600000) { // 1 hour
+        // 1. Remove players who have been disconnected for > 10 minutes
+        const playerRemoved = room.players.length;
+        room.players = room.players.filter(p => {
+            if (p.connected) return true;
+            if (now - p.lastDisconnectedAt > 600000) return false; // 10 mins
+            return true;
+        });
+
+        if (room.players.length !== playerRemoved) {
+            console.log(`Cleaned up disconnected players in room ${code}`);
+            io.to(code).emit('room-updated', getRoomData(code));
+        }
+
+        // 2. Dissolve room if 1 hour old or if all players are gone
+        const allDisconnected = room.players.every(p => !p.connected);
+        const tooOld = (now - room.createdAt > 3600000); // 1 hour
+
+        if (room.players.length === 0 || (allDisconnected && tooOld)) {
             rooms.delete(code);
-            console.log(`Stale room ${code} cleaned up`);
+            console.log(`Room ${code} cleaned up (Empty or Stale)`);
         }
     }
-}, 300000);
+}, 60000); // Check every minute
 
 // ==================== START SERVER (Production guard) ====================
 if (!IS_VERCEL) {

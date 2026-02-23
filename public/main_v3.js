@@ -128,9 +128,15 @@ class Game {
 
         // Listen for multiplayer lobby game start
         window.addEventListener('lobby-start-game', (e) => {
+            const data = e.detail;
             if (window.lobbySocket) {
                 this.multiplayer.init(window.lobbySocket, window.lobbyPlayerName, window.lobbyAvatar, this.zombieManager);
                 this.ui.updateRespawns(this.player.respawnsLeft, true);
+
+                // Set initial wave if rejoining
+                if (data && data.currentWave > 1) {
+                    this.zombieManager.forceStartWave(data.currentWave);
+                }
             }
             audioSystem.init();
             audioSystem.playClick();

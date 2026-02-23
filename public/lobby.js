@@ -111,19 +111,28 @@
         });
 
         socket.on('game-starting', (data) => {
-            addChatMessage({ sender: 'SYSTEM', text: '🎮 GAME STARTING IN 3...', type: 'system' });
-            setTimeout(() => addChatMessage({ sender: 'SYSTEM', text: '2...', type: 'system' }), 1000);
-            setTimeout(() => addChatMessage({ sender: 'SYSTEM', text: '1...', type: 'system' }), 2000);
-            setTimeout(() => {
+            if (data.gameStarted) {
+                // Rejoin: skip countdown
                 lobbyScreen.classList.add('hidden');
-                // Export data for main_v3.js
                 window.lobbySocket = socket;
                 window.lobbyPlayerName = playerNameInput.value.trim();
                 window.lobbyAvatar = selectedAvatar;
                 window.isLobbyHost = (currentRoomData && currentRoomData.hostId === mySocketId);
-                // Trigger start of game — dispatch a custom event
                 window.dispatchEvent(new CustomEvent('lobby-start-game', { detail: data }));
-            }, 3000);
+            } else {
+                // Fresh start: show countdown
+                addChatMessage({ sender: 'SYSTEM', text: '🎮 GAME STARTING IN 3...', type: 'system' });
+                setTimeout(() => addChatMessage({ sender: 'SYSTEM', text: '2...', type: 'system' }), 1000);
+                setTimeout(() => addChatMessage({ sender: 'SYSTEM', text: '1...', type: 'system' }), 2000);
+                setTimeout(() => {
+                    lobbyScreen.classList.add('hidden');
+                    window.lobbySocket = socket;
+                    window.lobbyPlayerName = playerNameInput.value.trim();
+                    window.lobbyAvatar = selectedAvatar;
+                    window.isLobbyHost = (currentRoomData && currentRoomData.hostId === mySocketId);
+                    window.dispatchEvent(new CustomEvent('lobby-start-game', { detail: data }));
+                }, 3000);
+            }
         });
 
         socket.on('disconnect', () => {
