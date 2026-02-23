@@ -1,2 +1,0 @@
-LOG [error]: http://localhost:8080/favicon.ico Failed to load resource: the server responded with a status of 404 (Not Found)
-Completed check.
