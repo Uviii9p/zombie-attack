@@ -6,13 +6,19 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
+
+// Socket.io - Note: Vercel does not support persistent WebSockets
 const io = new Server(server, { cors: { origin: '*' } });
+
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 const fs = require('fs');
+
+// Helpers for Serverless check
+const IS_VERCEL = process.env.VERCEL === '1';
 
 // ==================== AUTH SYSTEM ====================
 const USERS_FILE = path.join(__dirname, 'users.json');
@@ -26,14 +32,25 @@ function getUsers() {
     try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8')); } catch { return []; }
 }
 function saveUsers(users) {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    try {
+        fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    } catch (e) {
+        console.warn("Could not save users to local file (Normal on Vercel):", e.message);
+    }
 }
 
 function getGameData() {
-    try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8')); } catch { return { coins: 0, kill_count: 0 }; }
+    try {
+        if (!fs.existsSync(DATA_FILE)) return { coins: 0, kill_count: 0 };
+        return JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
+    } catch { return { coins: 0, kill_count: 0 }; }
 }
 function saveGameData(data) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+    try {
+        fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+    } catch (e) {
+        console.warn("Could not save game data to local file (Normal on Vercel):", e.message);
+    }
 }
 
 app.post('/api/signup', (req, res) => {
@@ -290,7 +307,14 @@ setInterval(() => {
     }
 }, 300000);
 
-server.listen(PORT, () => {
-    console.log(`Game server running on http://localhost:${PORT}`);
-    console.log(`Lobby system active with Socket.IO`);
-});
+// ==================== START SERVER (Production guard) ====================
+if (!IS_VERCEL) {
+    server.listen(PORT, () => {
+        console.log(`Game server running on http://localhost:${PORT}`);
+        console.log(`Lobby system active with Socket.IO`);
+    });
+}
+
+// Export for Vercel Serverless
+module.exports = app;
+
