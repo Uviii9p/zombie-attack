@@ -24,12 +24,25 @@ const IS_VERCEL = process.env.VERCEL === '1';
 const USERS_FILE = path.join(__dirname, 'users.json');
 const DATA_FILE = path.join(__dirname, 'game_data.json');
 
-// Initialize users DB
-if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify([]));
-if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, JSON.stringify({ coins: 0, kill_count: 0 }));
+// In-memory fallback for Vercel (since it has no persistent disk)
+let MEMORY_USERS = [];
+let MEMORY_DATA = { coins: 0, kill_count: 0 };
+
+function initFiles() {
+    try {
+        if (!fs.existsSync(USERS_FILE)) fs.writeFileSync(USERS_FILE, JSON.stringify([]));
+        if (!fs.existsSync(DATA_FILE)) fs.writeFileSync(DATA_FILE, JSON.stringify(MEMORY_DATA));
+    } catch (e) {
+        console.warn("Running in read-only mode (Vercel). Data will not persist.");
+    }
+}
+initFiles();
 
 function getUsers() {
-    try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8')); } catch { return []; }
+    try {
+        if (IS_VERCEL) return MEMORY_USERS;
+        return JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    } catch { return MEMORY_USERS; }
 }
 function saveUsers(users) {
     try {
