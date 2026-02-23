@@ -62,7 +62,13 @@
 
     function connectSocket() {
         if (socket && socket.connected) return;
-        socket = io(window.location.origin);
+
+        // Use Railway backend even if on Vercel to support WebSockets
+        const BACKEND_URL = window.location.hostname.includes('vercel.app')
+            ? 'https://web-production-53a37.up.railway.app'
+            : window.location.origin;
+
+        socket = io(BACKEND_URL);
 
         socket.on('connect', () => {
             mySocketId = socket.id;

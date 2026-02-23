@@ -12,6 +12,9 @@
     const playerNameInput = document.getElementById('player-name-input');
 
     // const SERVER_URL = 'http://localhost:3000'; // Removed for production relative paths
+    const BACKEND_URL = window.location.hostname.includes('vercel.app')
+        ? 'https://web-production-53a37.up.railway.app'
+        : '';
 
     function showError(msg) {
         authError.textContent = msg;
@@ -34,7 +37,7 @@
         signupBtn.disabled = true;
 
         try {
-            const res = await fetch(`/api/${type}`, {
+            const res = await fetch(`${BACKEND_URL}/api/${type}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })

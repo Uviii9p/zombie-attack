@@ -478,8 +478,11 @@ class Game {
     }
 
     async syncStats() {
+        const BACKEND_URL = window.location.hostname.includes('vercel.app')
+            ? 'https://web-production-53a37.up.railway.app'
+            : '';
         try {
-            const r = await fetch('/api/get-stats');
+            const r = await fetch(`${BACKEND_URL}/api/get-stats`);
             const d = await r.json();
             this.player.coins = d.coins || 0;
             this.ui.updateCoins(this.player.coins);
@@ -491,8 +494,12 @@ class Game {
         if (this.player.coins < 0) this.player.coins = 0;
         this.ui.updateCoins(this.player.coins);
 
+        const BACKEND_URL = window.location.hostname.includes('vercel.app')
+            ? 'https://web-production-53a37.up.railway.app'
+            : '';
+
         try {
-            await fetch('/api/update-coins', {
+            await fetch(`${BACKEND_URL}/api/update-coins`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ amount: this.player.coins, absolute: true })
