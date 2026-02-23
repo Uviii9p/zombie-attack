@@ -521,6 +521,16 @@ class Game {
                 this.createFence(); this.ui.updateFenceHealth(100); ok = true;
             } else if (id === 'house') {
                 this.houseHealth = this.maxHouseHealth; this.ui.updateHouseHealth(100); ok = true;
+            } else if (type === 'ammo') {
+                const ammoAmounts = { 'AK47': 30, 'Sniper': 10, 'RPG': 5 };
+                const amount = ammoAmounts[id] || 0;
+                if (amount > 0) {
+                    this.player.ammoReserves[id] += amount;
+                    if (this.weaponSystem.currentWeaponKey === id) {
+                        this.ui.updateAmmo(this.weaponSystem.currentWeapon.ammo, this.player.ammoReserves[id]);
+                    }
+                    ok = true;
+                }
             }
             if (ok) {
                 audioSystem.playBuy();
