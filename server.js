@@ -45,10 +45,11 @@ function getUsers() {
     } catch { return MEMORY_USERS; }
 }
 function saveUsers(users) {
+    MEMORY_USERS = users; // Always sync memory
     try {
-        fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+        if (!IS_VERCEL) fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
     } catch (e) {
-        console.warn("Could not save users to local file (Normal on Vercel):", e.message);
+        console.warn("Could not save users to local file:", e.message);
     }
 }
 
@@ -59,10 +60,11 @@ function getGameData() {
     } catch { return { coins: 0, kill_count: 0 }; }
 }
 function saveGameData(data) {
+    MEMORY_DATA = data; // Always sync memory
     try {
-        fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+        if (!IS_VERCEL) fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
     } catch (e) {
-        console.warn("Could not save game data to local file (Normal on Vercel):", e.message);
+        console.warn("Could not save game data to local file:", e.message);
     }
 }
 
@@ -212,6 +214,14 @@ io.on('connection', (socket) => {
                 type: 'player'
             });
         }
+    });
+
+    socket.on('voice-data', (data) => {
+        if (!currentRoom) return;
+        socket.to(currentRoom).emit('voice-data', {
+            sender: socket.id,
+            audio: data
+        });
     });
 
     socket.on('start-game', () => {

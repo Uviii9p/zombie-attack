@@ -6,6 +6,7 @@ import { Vehicle } from './vehicle.js';
 import { audioSystem } from './audio.js';
 import { WeaponSystem } from './weapons.js';
 import { GameUI } from './ui.js';
+import { Soldier } from './soldier.js';
 
 class Game {
     constructor() {
@@ -28,9 +29,9 @@ class Game {
         this.searchlight = null;
         this.gameStarted = false;
         this.isGameOver = false;
-        this.isShopOpen = false;
-        this.isBackpackOpen = false;
         this.isSettingsOpen = false;
+        this.soldiers = [];
+        this.sparkles = [];
 
         this.init().catch(e => console.error("Game Init Error:", e));
     }
@@ -435,6 +436,26 @@ class Game {
         this.scene.add(this.fence.mesh);
     }
 
+    createUpgradeSparkles(pos, color) {
+        const count = 30;
+        const geo = new THREE.BufferGeometry();
+        const posArray = [];
+        for (let i = 0; i < count; i++) {
+            posArray.push(pos.x, pos.y, pos.z);
+        }
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(posArray, 3));
+        const mat = new THREE.PointsMaterial({ color, size: 0.3, transparent: true, opacity: 1 });
+        const points = new THREE.Points(geo, mat);
+
+        points.userData = {
+            life: 1.0,
+            vels: Array.from({ length: count }, () => new THREE.Vector3((Math.random() - 0.5) * 0.5, Math.random() * 0.5, (Math.random() - 0.5) * 0.5))
+        };
+
+        this.scene.add(points);
+        this.sparkles.push(points);
+    }
+
     createEnvironment() {
         const envGroup = new THREE.Group();
 
@@ -530,9 +551,19 @@ class Game {
             } else if (id === 'armor') ok = this.player.upgradeArmor();
             else if (id === 'fence') {
                 this.fence.level++; this.fence.health = this.fence.maxHealth = 300 + (this.fence.level * 200);
-                this.createFence(); this.ui.updateFenceHealth(100); ok = true;
+                this.createFence(); this.ui.updateFenceHealth(100);
+                this.createUpgradeSparkles(new THREE.Vector3(0, 2, 13), 0x00ffff);
+                ok = true;
             } else if (id === 'house') {
-                this.houseHealth = this.maxHouseHealth; this.ui.updateHouseHealth(100); ok = true;
+                this.houseHealth = this.maxHouseHealth; this.ui.updateHouseHealth(100);
+                this.createUpgradeSparkles(new THREE.Vector3(0, 5, 0), 0xffff00);
+                ok = true;
+            } else if (type === 'npc' && id === 'bodyguard') {
+                const pos = this.player.group.position.clone().add(new THREE.Vector3(2, 0, 2));
+                const s = new Soldier(this.scene, pos);
+                this.soldiers.push(s);
+                this.createUpgradeSparkles(pos, 0x00ff00);
+                ok = true;
             } else if (type === 'ammo') {
                 const ammoAmounts = { 'AK47': 30, 'Sniper': 10, 'RPG': 5 };
                 const amount = ammoAmounts[id] || 0;
@@ -712,6 +743,29 @@ class Game {
             if (this.isBackpackOpen) this.ui.renderInventory(this.player);
         });
 
+        // Update Soldiers
+        this.soldiers = this.soldiers.filter(s => !s.isDead);
+        this.soldiers.forEach(s => s.update(d, this.zombieManager.zombies, this.scene));
+
+        // Update Sparkles
+        for (let i = this.sparkles.length - 1; i >= 0; i--) {
+            const s = this.sparkles[i];
+            s.userData.life -= d * 1.5;
+            const pos = s.geometry.attributes.position.array;
+            for (let j = 0; j < pos.length; j += 3) {
+                const vel = s.userData.vels[j / 3];
+                pos[j] += vel.x;
+                pos[j + 1] += vel.y;
+                pos[j + 2] += vel.z;
+            }
+            s.geometry.attributes.position.needsUpdate = true;
+            s.material.opacity = s.userData.life;
+            if (s.userData.life <= 0) {
+                this.scene.remove(s);
+                this.sparkles.splice(i, 1);
+            }
+        }
+
         // Auto Reload
         const currentWep = this.weaponSystem.currentWeapon;
         if (currentWep && currentWep.ammo === 0 && !this.weaponSystem.isReloading && this.player.ammoReserves[this.weaponSystem.currentWeaponKey] > 0) {
@@ -802,7 +856,52 @@ class Game {
             this.multiplayer.update(d, this.camera);
         }
 
+        // Voice Chat Implementation
+        if (this.multiplayer.isActive && window.lobbySocket) {
+            if (!this._voiceInit) {
+                this._voiceInit = true;
+                this.initVoiceChat();
+            }
+        }
+
         this.renderer.render(this.scene, this.camera);
+    }
+
+    async initVoiceChat() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream);
+            const statusUi = document.getElementById('voice-status');
+
+            window.addEventListener('keydown', (e) => {
+                if (e.code === 'KeyX' && mediaRecorder.state === 'inactive') {
+                    mediaRecorder.start();
+                    if (statusUi) statusUi.classList.remove('hidden');
+                }
+            });
+
+            window.addEventListener('keyup', (e) => {
+                if (e.code === 'KeyX' && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                    if (statusUi) statusUi.classList.add('hidden');
+                }
+            });
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (window.lobbySocket) {
+                    window.lobbySocket.emit('voice-data', e.data);
+                }
+            };
+
+            window.lobbySocket.on('voice-data', async (data) => {
+                const blob = new Blob([data.audio], { type: 'audio/webm' });
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                await audio.play();
+            });
+        } catch (err) {
+            console.warn("Voice chat fail:", err);
+        }
     }
 }
 

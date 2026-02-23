@@ -66,7 +66,11 @@
                     [B]</button>
             </div>
 
-            <div id="shop-hint">Press [B]: Shop | [V]: View | [TAB]: Backpack | [F]: Flashlight</div>
+            <div id="shop-hint">Press [B]: Shop | [V]: View | [TAB]: Backpack | [F]: Flashlight | [X]: Voice Chat</div>
+            <div id="voice-status" class="hidden"
+                style="position: absolute; bottom: 20px; right: 20px; color: #2ecc71; font-family: 'Orbitron', sans-serif; font-size: 1rem; text-shadow: 0 0 10px #2ecc71;">
+                🎙️ TRANSMITTING...
+            </div>
             <div id="crosshair">+</div>
             <div id="hitmarker" class="hidden">
                 <div class="hm-tl"></div>
@@ -143,6 +147,11 @@
                         <h3>RPG AMMO PACK</h3>
                         <p>+5 Rockets</p>
                         <button class="buy-btn" data-cost="500">500 Coins</button>
+                    </div>
+                    <div class="shop-item" data-type="npc" data-id="bodyguard">
+                        <h3>ELITE BODYGUARD</h3>
+                        <p>AI Soldier with AK47</p>
+                        <button class="buy-btn" data-cost="10000">10,000 Coins</button>
                     </div>
                 </div>
                 <button id="close-shop" class="btn-primary">Close</button>
