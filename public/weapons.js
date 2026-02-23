@@ -1,0 +1,219 @@
+import * as THREE from 'three';
+import { audioSystem } from './audio.js';
+
+export class WeaponSystem {
+    constructor(scene, camera) {
+        this.scene = scene;
+        this.camera = camera;
+        this.weapons = {
+            'AK47': {
+                damage: 25,
+                fireRate: 0.12,
+                ammo: 30,
+                maxAmmo: 30,
+                reserve: 90,
+                reloadTime: 1.0,
+                range: 120,
+                automatic: true,
+                type: 'bullet',
+                recoil: 0.05,
+                muzzleIntensity: 2
+            },
+            'Sniper': {
+                damage: 151,
+                fireRate: 1.2,
+                ammo: 5,
+                maxAmmo: 5,
+                reserve: 15,
+                reloadTime: 1.0,
+                range: 350,
+                automatic: false,
+                type: 'bullet',
+                recoil: 0.2,
+                muzzleIntensity: 5
+            },
+            'RPG': {
+                damage: 300,
+                fireRate: 2.2,
+                ammo: 1,
+                maxAmmo: 1,
+                reserve: 3,
+                reloadTime: 1.0,
+                range: 150,
+                automatic: false,
+                type: 'explosive',
+                recoil: 0.5,
+                muzzleIntensity: 10
+            }
+        };
+
+        this.currentWeaponKey = 'AK47';
+        this.lastFireTime = 0;
+        this.isReloading = false;
+
+        // Realistic muzzle flash (Point Light + Mesh)
+        this.muzzleLight = new THREE.PointLight(0xffaa00, 2, 5);
+        this.muzzleLight.visible = false;
+        this.scene.add(this.muzzleLight);
+
+        const flashGeo = new THREE.SphereGeometry(0.12, 8, 8);
+        const flashMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        this.muzzleFlash = new THREE.Mesh(flashGeo, flashMat);
+        this.muzzleFlash.visible = false;
+        this.scene.add(this.muzzleFlash);
+
+        this.explosions = [];
+        this.explosionGeo = new THREE.SphereGeometry(3, 16, 16);
+    }
+
+    update(delta) {
+        for (let i = this.explosions.length - 1; i >= 0; i--) {
+            const exp = this.explosions[i];
+            exp.scale += 0.3 * (delta * 60);
+            exp.mesh.scale.set(exp.scale, exp.scale, exp.scale);
+            exp.mesh.material.opacity -= 0.1 * (delta * 60);
+            if (exp.mesh.material.opacity <= 0) {
+                this.scene.remove(exp.mesh);
+                exp.mesh.material.dispose();
+                this.explosions.splice(i, 1);
+            }
+        }
+    }
+
+    get currentWeapon() {
+        return this.weapons[this.currentWeaponKey];
+    }
+
+    switchWeapon(key) {
+        if (this.weapons[key] && !this.isReloading) {
+            this.currentWeaponKey = key;
+            return true;
+        }
+        return false;
+    }
+
+    canFire() {
+        if (this.isReloading) return false;
+        const weapon = this.currentWeapon;
+        if (weapon.ammo <= 0) {
+            // Throttled empty click (max once per 0.5s)
+            const now = performance.now() / 1000;
+            if (!this._lastEmptyClick || now - this._lastEmptyClick > 0.5) {
+                audioSystem.playClick();
+                this._lastEmptyClick = now;
+            }
+            return false;
+        }
+
+        const now = performance.now() / 1000;
+        if (now - this.lastFireTime < weapon.fireRate) return false;
+
+        return true;
+    }
+
+    fire(zombies, onHit, onHitAny) {
+        if (!this.canFire()) return null;
+
+        const weapon = this.currentWeapon;
+        weapon.ammo--;
+        this.lastFireTime = performance.now() / 1000;
+
+        // Broadcast shot to multiplayer lobby
+        if (window.multiplayer) window.multiplayer.sendShoot(this.currentWeaponKey, this.camera);
+
+        if (this.currentWeaponKey === 'AK47') audioSystem.playShootAK();
+        else if (this.currentWeaponKey === 'Sniper') audioSystem.playShootSniper();
+        else if (this.currentWeaponKey === 'RPG') audioSystem.playShootRPG();
+
+        // Position muzzle flash at gun tip (offset from camera)
+        const direction = new THREE.Vector3();
+        this.camera.getWorldDirection(direction);
+
+        const flashPos = this.camera.position.clone()
+            .add(direction.clone().multiplyScalar(1.2))
+            .add(new THREE.Vector3(0.3, -0.2, 0).applyQuaternion(this.camera.quaternion));
+
+        this.muzzleFlash.position.copy(flashPos);
+        this.muzzleLight.position.copy(flashPos);
+        this.muzzleLight.intensity = weapon.muzzleIntensity;
+        this.muzzleFlash.visible = true;
+        this.muzzleLight.visible = true;
+
+        setTimeout(() => {
+            this.muzzleFlash.visible = false;
+            this.muzzleLight.visible = false;
+        }, 50);
+
+        // Raycasting for bullet hit detection
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
+
+        if (weapon.type === 'explosive') {
+            const intersects = raycaster.intersectObjects(this.scene.children, true);
+            if (intersects.length > 0) {
+                const hitPoint = intersects[0].point;
+                this.createExplosion(hitPoint);
+                let hitAnything = false;
+                zombies.forEach(z => {
+                    const dist = z.mesh.position.distanceTo(hitPoint);
+                    if (dist < 10) {
+                        onHit(z, weapon.damage * (1 - dist / 10));
+                        hitAnything = true;
+                    }
+                });
+                if (hitAnything && onHitAny) onHitAny();
+            }
+        } else {
+            // Precise hit detection for children meshes
+            const zombieMeshes = [];
+            const zombieMap = new Map();
+            zombies.forEach(z => {
+                z.mesh.traverse(child => {
+                    if (child.isMesh) {
+                        zombieMeshes.push(child);
+                        zombieMap.set(child, z);
+                    }
+                });
+            });
+
+            const intersects = raycaster.intersectObjects(zombieMeshes, false);
+            if (intersects.length > 0) {
+                const zombie = zombieMap.get(intersects[0].object);
+                if (zombie) {
+                    onHit(zombie, weapon.damage);
+                    if (onHitAny) onHitAny();
+                }
+            }
+        }
+
+        return weapon;
+    }
+
+    reload() {
+        const weapon = this.currentWeapon;
+        if (this.isReloading || weapon.ammo === weapon.maxAmmo || weapon.reserve <= 0) return;
+        this.isReloading = true;
+        setTimeout(() => {
+            const needed = weapon.maxAmmo - weapon.ammo;
+            const transfer = Math.min(needed, weapon.reserve);
+            weapon.ammo += transfer;
+            weapon.reserve -= transfer;
+            this.isReloading = false;
+        }, weapon.reloadTime * 1000);
+    }
+
+    createExplosion(point) {
+        audioSystem.playExplosion();
+        const mat = new THREE.MeshStandardMaterial({
+            color: 0xff4500,
+            emissive: 0xff4500,
+            emissiveIntensity: 2,
+            transparent: true,
+            opacity: 0.9
+        });
+        const mesh = new THREE.Mesh(this.explosionGeo, mat);
+        mesh.position.copy(point);
+        this.scene.add(mesh);
+        this.explosions.push({ mesh, scale: 1 });
+    }
+}

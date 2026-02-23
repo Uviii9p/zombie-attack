@@ -1,0 +1,22 @@
+Invoke-WebRequest : Unable 
+to connect to the remote 
+server
+At line:1 char:1
++ Invoke-WebRequest -Uri 
+'http://localhost:8080' 
+-UseBasicParsing | Sel ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~
+    + CategoryInfo         
+     : InvalidOperation:   
+  (System.Net.HttpWebReq   
+ uest:HttpWebRequest) [    
+Invoke-WebRequest], We    
+bException
+    + FullyQualifiedErrorI 
+   d : WebCmdletWebRespon  
+  seException,Microsoft.   
+ PowerShell.Commands.In    
+vokeWebRequestCommand
+ 

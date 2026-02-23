@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title id="game-title">Desert Survival: Zombie Apocalypse</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Google Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap"
+        rel="stylesheet">
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="game-container">
+        <!-- UI Elements -->
+        <div id="ui-layer">
+            <div id="wave-announcement" class="wave-announcement hidden">WAVE 1</div>
+            <div id="stats-panel">
+                <div class="stat-item">
+                    <label>PLAYER HP</label>
+                    <div class="progress-bar">
+                        <div id="player-health-fill" class="fill health-low"></div>
+                    </div>
+                </div>
+                <div class="stat-item" id="respawn-stat" style="display: none;">
+                    <label>RESPAWNS</label>
+                    <div id="respawn-count"
+                        style="color: #e74c3c; font-weight: bold; font-family: 'Orbitron', sans-serif; font-size: 1.2rem; text-shadow: 0 0 10px rgba(231, 76, 60, 0.5);">
+                        5</div>
+                </div>
+                <div class="stat-item">
+                    <label>FENCE HP</label>
+                    <div class="progress-bar">
+                        <div id="fence-health-fill" class="fill"></div>
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <label>HOUSE HP</label>
+                    <div class="progress-bar">
+                        <div id="house-health-fill" class="fill"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="weapon-panel">
+                <div id="weapon-name">AK-47</div>
+                <div id="ammo-count">30 / 90</div>
+            </div>
+
+            <div id="coin-panel">
+                <span id="coin-balance">0</span>
+                <img src="https://img.icons8.com/color/48/000000/gold-pot.png" width="30" alt="coins">
+                <button id="hud-shop-btn" style="padding: 5px 10px; font-size: 0.7rem; margin-left: 10px;">SHOP
+                    [B]</button>
+            </div>
+
+            <div id="shop-hint">Press [B]: Shop | [V]: View | [TAB]: Backpack</div>
+            <div id="crosshair">+</div>
+            <div id="hitmarker" class="hidden">
+                <div class="hm-tl"></div>
+                <div class="hm-tr"></div>
+                <div class="hm-bl"></div>
+                <div class="hm-br"></div>
+            </div>
+
+            <!-- Sniper Scope Overlay -->
+            <div id="scope-overlay" class="hidden">
+                <div class="scope-crosshair"></div>
+                <div class="scope-circle"></div>
+            </div>
+        </div>
+
+        <!-- Backpack Screen -->
+        <div id="backpack-screen" class="screen-overlay hidden">
+            <div class="backpack-content modal-content">
+                <h2>BACKPACK</h2>
+                <div id="inventory-list">
+                    <!-- Items will be injected here -->
+                </div>
+                <div id="ammo-stash">
+                    <h3>AMMO RESERVE</h3>
+                    <p>AK47: <span id="ak47-ammo">0</span></p>
+                    <p>Sniper: <span id="sniper-ammo">0</span></p>
+                    <p>RPG: <span id="rpg-ammo">0</span></p>
+                </div>
+                <button id="close-backpack" class="btn-primary">Close</button>
+            </div>
+        </div>
+
+        <!-- Shop Screen -->
+        <div id="shop-screen" class="screen-overlay hidden">
+            <div class="shop-content modal-content">
+                <h2>SURVIVAL SHOP</h2>
+                <div class="shop-grid">
+                    <div class="shop-item" data-type="weapon" data-id="Sniper">
+                        <h3>SNIPER RIFLE</h3>
+                        <p>High damage, zoom scope</p>
+                        <button class="buy-btn" data-cost="500">500 Coins</button>
+                    </div>
+                    <div class="shop-item" data-type="weapon" data-id="RPG">
+                        <h3>RPG</h3>
+                        <p>Area damage, explosive</p>
+                        <button class="buy-btn" data-cost="1500">1500 Coins</button>
+                    </div>
+                    <div class="shop-item" data-type="upgrade" data-id="armor">
+                        <h3>BODY ARMOR</h3>
+                        <p>Reduce damage taken</p>
+                        <button class="buy-btn" data-cost="300">300 Coins</button>
+                    </div>
+                    <div class="shop-item" data-type="upgrade" data-id="fence">
+                        <h3>FENCE UPGRADE</h3>
+                        <p>Reinforce perimeter</p>
+                        <button class="buy-btn" data-cost="400">400 Coins</button>
+                    </div>
+                    <div class="shop-item" data-type="upgrade" data-id="house">
+                        <h3>HOUSE REPAIR</h3>
+                        <p>Restore base health</p>
+                        <button class="buy-btn" data-cost="200">200 Coins</button>
+                    </div>
+                </div>
+                <button id="close-shop" class="btn-primary">Close</button>
+            </div>
+        </div>
+
+        <div id="game-over-screen" class="screen-overlay hidden">
+            <div class="modal-content" style="text-align: center;">
+                <h1>GAME OVER</h1>
+                <p class="subtitle">The zombies have destroyed your home!</p>
+                <div id="final-stats"
+                    style="font-size: 1.5rem; color: #f1c40f; margin-bottom: 30px; font-family: 'Orbitron', sans-serif;">
+                    Coins Earned: <span id="final-coins">0</span>
+                </div>
+                <button id="restart-btn" class="btn-primary">Try Again</button>
+            </div>
+        </div>
+
+        <div id="auth-screen" class="screen-overlay">
+            <div class="lobby-container" style="max-width: 400px; height: auto;">
+                <div class="lobby-main">
+                    <h1 class="lobby-title" style="font-size: 2rem;">DESERT SURVIVAL</h1>
+                    <p class="lobby-subtitle" style="margin-bottom: 20px;">Secure your connection</p>
+
+                    <div id="auth-form" class="auth-box">
+                        <div class="lobby-name-input">
+                            <label>CALLSIGN (USERNAME)</label>
+                            <input type="text" id="auth-username" placeholder="Enter username..." maxlength="16"
+                                autocomplete="off">
+                        </div>
+                        <div class="lobby-name-input">
+                            <label>ENCRYPTION KEY (PASSWORD)</label>
+                            <input type="password" id="auth-password" placeholder="Enter password..."
+                                autocomplete="off">
+                        </div>
+
+                        <p id="auth-error" class="lobby-error"></p>
+
+                        <div class="lobby-actions">
+                            <button id="auth-login-btn" class="btn-primary lobby-btn"
+                                style="background: linear-gradient(135deg, #1e90ff, #0984e3);">LOGIN</button>
+                            <button id="auth-signup-btn" class="btn-primary lobby-btn join-btn"
+                                style="width: 100%; margin-top: 10px;">REGISTER</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="menu-screen" class="screen-overlay hidden">
+            <h1 id="game-title-text" style="cursor: pointer; user-select: none;">DESERT SURVIVAL</h1>
+            <p class="subtitle">Defend your home from the walking dead.</p>
+            <div class="menu-buttons">
+                <button id="start-btn" class="btn-primary">Solo Play</button>
+                <button id="multiplayer-btn" class="btn-primary"
+                    style="background: linear-gradient(135deg, #e74c3c, #c0392b);">Multiplayer</button>
+                <button id="settings-btn" class="btn-primary btn-secondary">Settings</button>
+                <button id="logout-btn" class="btn-primary btn-secondary"
+                    style="background: rgba(255, 50, 50, 0.1); color: #ff4757; border-color: #ff4757;">Logout</button>
+            </div>
+            <div class="controls-hint">
+                WASD: Move | SPACE: Jump | SHIFT: Sprint<br>
+                LEFT CLICK: Shoot | R: Reload | 1,2,3: Switch Weapons
+            </div>
+        </div>
+
+        <!-- MULTIPLAYER LOBBY SCREEN -->
+        <div id="lobby-screen" class="screen-overlay hidden">
+            <div class="lobby-container">
+                <!-- Left: Lobby Info -->
+                <div class="lobby-main">
+                    <!-- Initial view: Create / Join -->
+                    <div id="lobby-entry" class="lobby-entry">
+                        <h1 class="lobby-title">MULTIPLAYER</h1>
+                        <p class="lobby-subtitle">Squad up and survive together</p>
+
+                        <div class="lobby-name-input">
+                            <label>YOUR CALLSIGN</label>
+                            <input type="text" id="player-name-input" placeholder="Enter your name..." maxlength="16"
+                                autocomplete="off">
+                        </div>
+
+                        <div class="lobby-avatar-select">
+                            <label>SELECT AVATAR</label>
+                            <div class="avatar-grid">
+                                <div class="avatar-option selected" data-avatar="0">🪖</div>
+                                <div class="avatar-option" data-avatar="1">💀</div>
+                                <div class="avatar-option" data-avatar="2">🎖️</div>
+                                <div class="avatar-option" data-avatar="3">🔫</div>
+                            </div>
+                        </div>
+
+                        <div class="lobby-actions">
+                            <button id="create-room-btn" class="btn-primary lobby-btn">CREATE ROOM</button>
+                            <div class="lobby-divider"><span>OR</span></div>
+                            <div class="join-row">
+                                <input type="text" id="room-code-input" placeholder="ROOM CODE" maxlength="6"
+                                    autocomplete="off" style="text-transform: uppercase;">
+                                <button id="join-room-btn" class="btn-primary lobby-btn join-btn">JOIN</button>
+                            </div>
+                        </div>
+
+                        <p id="lobby-error" class="lobby-error"></p>
+                        <button id="lobby-back-btn" class="btn-primary btn-secondary" style="margin-top: 20px;">← Back
+                            to Menu</button>
+                    </div>
+
+                    <!-- Room view (shown after creating/joining) -->
+                    <div id="lobby-room" class="lobby-room hidden">
+                        <div class="room-header">
+                            <h2>ROOM CODE</h2>
+                            <div class="room-code-display">
+                                <span id="room-code-text">------</span>
+                                <button id="copy-code-btn" class="copy-btn" title="Copy code">📋</button>
+                            </div>
+                            <p class="room-hint">Share this code with your friends!</p>
+                        </div>
+
+                        <div class="players-grid" id="players-grid">
+                            <!-- Players injected here -->
+                        </div>
+
+                        <div class="room-actions">
+                            <button id="ready-btn" class="btn-primary ready-btn">READY UP</button>
+                            <button id="start-game-btn" class="btn-primary start-lobby-btn hidden">START GAME</button>
+                            <button id="leave-room-btn" class="btn-primary btn-secondary">Leave Room</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Chat -->
+                <div class="lobby-chat">
+                    <h3 class="chat-title">SQUAD CHAT</h3>
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="chat-msg system">Welcome to the lobby!</div>
+                    </div>
+                    <div class="chat-input-row">
+                        <input type="text" id="chat-input" placeholder="Type a message..." maxlength="120"
+                            autocomplete="off">
+                        <button id="chat-send-btn" class="chat-send">➤</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Screen -->
+        <div id="settings-screen" class="screen-overlay hidden">
+            <div class="settings-content modal-content">
+                <h2>SETTINGS</h2>
+                <div class="setting-row">
+                    <span>CAMERA VIEW:</span>
+                    <select id="view-select">
+                        <option value="TPP" selected>Third Person (TPP)</option>
+                        <option value="FPP">First Person (FPP)</option>
+                    </select>
+                </div>
+                <div class="setting-row">
+                    <span>GRAPHICS:</span>
+                    <select id="graphics-select">
+                        <option value="high" selected>Ultra Realistic</option>
+                        <option value="low">Performance</option>
+                    </select>
+                </div>
+                <button id="save-settings" class="btn-primary">Keep Settings</button>
+                <div class="lobby-divider" style="margin: 20px 0;"><span>OR</span></div>
+                <button id="leave-game-btn" class="btn-primary start-lobby-btn" style="width: 100%;">Leave Game</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Panel -->
+    <div id="admin-panel" class="hidden"
+        style="position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.9); z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #0f0; font-family: monospace;">
+        <h1 style="color: #0f0; text-shadow: 0 0 10px #0f0;">ADMIN CONSOLE ACTIVATED</h1>
+        <p>ALL LIMITS REMOVED. UNLIMITED AMMO, COINS, AND HEALTH.</p>
+        <button id="close-admin-btn"
+            style="margin-top: 20px; padding: 10px 20px; background: #0f0; color: #000; border: none; font-weight: bold; cursor: pointer;">RETURN
+            TO GAME</button>
+    </div>
+
+    <!-- Socket.IO Client -->
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <!-- Auth System -->
+    <script src="auth.js"></script>
+    <!-- Lobby System -->
+    <script src="lobby.js"></script>
+    <!-- Core Game Scripts -->
+    <script type="module" src="main_v3.js"></script>
+</body>
+
+</html>
