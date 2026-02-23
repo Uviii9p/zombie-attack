@@ -69,6 +69,12 @@
             console.log('Connected to lobby server:', mySocketId);
         });
 
+        socket.on('connect_error', (error) => {
+            console.error('Socket Connection Error:', error);
+            lobbyError.textContent = 'Multiplayer server unreachable. Use Solo Play or deploy to Railway!';
+            lobbyError.style.display = 'block';
+        });
+
         socket.on('room-created', (data) => {
             currentRoomData = data;
             window.isLobbyHost = (data.hostId === mySocketId);
