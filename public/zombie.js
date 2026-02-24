@@ -366,7 +366,7 @@ export class Zombie {
 export class ZombieManager {
     constructor(scene) {
         this.scene = scene;
-        this.zombies = []; this.loots = []; this.maxZombies = 50;
+        this.zombies = []; this.loots = []; this.maxZombies = 60;
         this.spawnTimer = 0; this.spawnInterval = 4.0;
         this.lootGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 12);
         this.boxGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
@@ -380,8 +380,47 @@ export class ZombieManager {
         // Wave System
         this.currentWave = 1;
         this.zombiesToSpawn = 10;
+        this.zombiesSpawnedThisWave = 0;
         this.waveIntermission = false;
         this.intermissionTimer = 0;
+
+        // Boss System
+        this.boss = null;
+        this.bossActive = false;
+        this.bossSpawnPending = false;
+        this.bossSpawnDelay = 0;
+        this.bossNames = [
+            'Mutant Ravager', 'Decay Lord', 'Plague Titan', 'Rot Colossus',
+            'Death Monger', 'Blight King', 'Gore Behemoth', 'Doom Shaman',
+            'Flesh Golem', 'Undead Warlord', 'Bone Crusher', 'Shadow Hulk'
+        ];
+
+        // Scaling caps
+        this.maxWaveScale = 30; // Cap scaling at wave 30
+    }
+
+    getScaledHealth(wave) {
+        const w = Math.min(wave, this.maxWaveScale);
+        return Math.floor(75 * (1 + w * 0.2));
+    }
+
+    getScaledDamage(wave) {
+        const w = Math.min(wave, this.maxWaveScale);
+        return Math.floor(10 * (1 + w * 0.15));
+    }
+
+    getScaledSpeed(wave) {
+        const w = Math.min(wave, this.maxWaveScale);
+        return 0.04 + (w * 0.003);
+    }
+
+    getBossHealth(wave) {
+        const w = Math.min(wave, this.maxWaveScale);
+        return Math.floor(500 * (1 + w * 0.35));
+    }
+
+    getBossName(wave) {
+        return this.bossNames[(wave - 1) % this.bossNames.length] + ' – Wave ' + wave;
     }
 
     update(delta, player, house, fence, onAttack, onKill, onLoot, walls = []) {
@@ -390,30 +429,56 @@ export class ZombieManager {
             window.dispatchEvent(new CustomEvent('wave-start', { detail: this.currentWave }));
         }
 
-        if (this.waveIntermission) {
-            this.intermissionTimer -= delta;
-            if (this.intermissionTimer <= 0) {
-                this.waveIntermission = false;
-                this.currentWave++;
-                this.zombiesToSpawn = Math.floor(10 * Math.pow(1.2, this.currentWave - 1));
-                window.dispatchEvent(new CustomEvent('wave-start', { detail: this.currentWave }));
-            }
-        } else {
-            this.spawnTimer += delta;
-            if (this.spawnTimer > this.spawnInterval && this.zombiesToSpawn > 0 && this.activeCount() < this.maxZombies) {
-                this.spawnZombie(this.currentWave);
-                this.zombiesToSpawn--;
-                this.spawnTimer = 0;
-                this.spawnInterval = Math.max(0.5, 4.0 - (this.currentWave * 0.15));
-            }
-
-            if (this.zombiesToSpawn === 0 && this.activeCount() === 0) {
-                this.waveIntermission = true;
-                this.intermissionTimer = 10.0;
-                window.dispatchEvent(new CustomEvent('wave-cleared', { detail: this.currentWave }));
+        // Boss spawn delay
+        if (this.bossSpawnPending) {
+            this.bossSpawnDelay -= delta;
+            if (this.bossSpawnDelay <= 0) {
+                this.bossSpawnPending = false;
+                this.spawnBoss(this.currentWave);
             }
         }
 
+        if (this.waveIntermission && !this.bossActive) {
+            this.intermissionTimer -= delta;
+
+            // Countdown events
+            const remaining = Math.ceil(this.intermissionTimer);
+            if (remaining > 0 && remaining <= 5) {
+                window.dispatchEvent(new CustomEvent('wave-countdown', { detail: remaining }));
+            }
+
+            if (this.intermissionTimer <= 0) {
+                this.waveIntermission = false;
+                this.currentWave++;
+                this.zombiesToSpawn = this.getWaveZombieCount(this.currentWave);
+                this.zombiesSpawnedThisWave = 0;
+                window.dispatchEvent(new CustomEvent('wave-start', { detail: this.currentWave }));
+            }
+        } else if (!this.waveIntermission && !this.bossActive) {
+            this.spawnTimer += delta;
+            const spawnBatch = Math.min(5, Math.floor(this.currentWave / 3) + 1); // Spawn more per tick at higher waves
+
+            if (this.spawnTimer > this.spawnInterval && this.zombiesToSpawn > 0 && this.activeCount() < this.maxZombies) {
+                const count = Math.min(spawnBatch, this.zombiesToSpawn);
+                for (let i = 0; i < count; i++) {
+                    this.spawnZombie(this.currentWave);
+                    this.zombiesToSpawn--;
+                    this.zombiesSpawnedThisWave++;
+                }
+                this.spawnTimer = 0;
+                this.spawnInterval = Math.max(0.4, 4.0 - (this.currentWave * 0.18));
+            }
+
+            // Wave cleared — trigger boss
+            if (this.zombiesToSpawn === 0 && this.activeCount() === 0 && !this.bossSpawnPending) {
+                window.dispatchEvent(new CustomEvent('wave-cleared', { detail: this.currentWave }));
+                // Spawn boss after a short dramatic delay
+                this.bossSpawnPending = true;
+                this.bossSpawnDelay = 2.0;
+            }
+        }
+
+        // Update all zombies
         this.zombies.forEach(z => {
             z.update(delta, player, house, fence, onAttack, walls);
             if (z.isDead && !z.dropProcessed && !z.mesh.visible) {
@@ -422,6 +487,35 @@ export class ZombieManager {
             }
         });
 
+        // Update boss
+        if (this.boss && this.bossActive) {
+            this.boss.update(delta, player, house, fence, onAttack, walls);
+
+            // Update boss health UI
+            const bossRatio = Math.max(0, this.boss.health / this.boss.maxHealth);
+            window.dispatchEvent(new CustomEvent('boss-health', { detail: { ratio: bossRatio, name: this.boss.bossName } }));
+
+            if (this.boss.isDead && !this.boss.dropProcessed) {
+                this.boss.dropProcessed = true;
+                this.bossActive = false;
+
+                // Boss defeated — massive loot
+                for (let i = 0; i < 5; i++) {
+                    const ox = (Math.random() - 0.5) * 3;
+                    const oz = (Math.random() - 0.5) * 3;
+                    this.spawnLoot(this.boss.deathPosition.x + ox, this.boss.deathPosition.z + oz);
+                }
+
+                window.dispatchEvent(new CustomEvent('boss-defeated', { detail: this.currentWave }));
+                window.dispatchEvent(new CustomEvent('boss-health', { detail: { ratio: 0, name: '' } }));
+
+                // Start intermission for next wave
+                this.waveIntermission = true;
+                this.intermissionTimer = 8.0;
+            }
+        }
+
+        // Loot pickup
         for (let i = this.loots.length - 1; i >= 0; i--) {
             const l = this.loots[i]; l.mesh.rotation.y += 0.05;
             l.mesh.position.y = 0.5 + Math.sin(Date.now() * 0.005) * 0.2;
@@ -433,7 +527,7 @@ export class ZombieManager {
             }
         }
 
-        // Handle blood particles without setInterval
+        // Blood particles
         for (let i = this.bloodParticles.length - 1; i >= 0; i--) {
             const p = this.bloodParticles[i];
             p.mesh.position.add(p.velocity);
@@ -446,14 +540,57 @@ export class ZombieManager {
         }
     }
 
+    getWaveZombieCount(wave) {
+        return Math.min(50, Math.floor(8 + wave * 3));
+    }
+
+    spawnBoss(wave) {
+        const bossHealth = this.getBossHealth(wave);
+        const bossName = this.getBossName(wave);
+        const bossScale = Math.min(5.0, 2.5 + (wave * 0.15));
+
+        // Create or recycle a zombie as boss
+        let z = new Zombie(this.scene);
+        this.zombies.push(z);
+
+        // Spawn position: far south
+        const a = Math.PI / 2 + (Math.random() - 0.5) * 0.5;
+        const r = 40;
+        z.spawn(Math.cos(a) * r, Math.sin(a) * r, wave);
+
+        // Override to boss stats
+        z.maxHealth = bossHealth;
+        z.health = bossHealth;
+        z.speed = Math.max(0.02, 0.035 - wave * 0.001);
+        z.damage = Math.floor(30 * (1 + wave * 0.2));
+        z.attackInterval = Math.max(0.8, 1.6 - wave * 0.05);
+        z.mesh.scale.set(bossScale, bossScale, bossScale);
+        z.bossName = bossName;
+        z.isBoss = true;
+
+        // Boss visual: dark red with glowing
+        z.bodyMat.color.setHex(0x440000);
+        z.bodyMat.emissive = new THREE.Color(0x220000);
+        z.bodyMat.emissiveIntensity = 0.5;
+
+        this.boss = z;
+        this.bossActive = true;
+
+        // Dispatch boss spawn event for UI
+        window.dispatchEvent(new CustomEvent('boss-spawn', { detail: { name: bossName, wave: wave } }));
+
+        // Camera shake effect
+        window.dispatchEvent(new CustomEvent('screen-shake', { detail: { intensity: 0.5, duration: 1.0 } }));
+    }
+
     spawnZombie(wave = 1) {
-        let z = this.zombies.find(z => z.isDead && !z.mesh.visible);
+        let z = this.zombies.find(z => z.isDead && !z.mesh.visible && !z.isBoss);
         if (!z) { if (this.zombies.length < this.maxZombies) { z = new Zombie(this.scene); this.zombies.push(z); } else return; }
 
-        // Ensure zombies spawn at least 30 units away, up to 80 units
         const a = Math.random() * Math.PI * 2;
         const r = 35 + Math.random() * 45;
         z.spawn(Math.cos(a) * r, Math.sin(a) * r, wave);
+        z.isBoss = false;
     }
 
     spawnLoot(x, z) {
@@ -476,26 +613,22 @@ export class ZombieManager {
     forceClearWave(wave) {
         if (this.currentWave !== wave) return;
         if (this.waveIntermission) return;
-
-        console.log(`[WaveSync] Force Clearing Wave ${wave}`);
         this.zombiesToSpawn = 0;
-        // Kill all active zombies instantly for sync
-        this.zombies.forEach(z => {
-            if (!z.isDead) z.die();
-        });
-
+        this.zombies.forEach(z => { if (!z.isDead) z.die(); });
+        if (this.boss && this.bossActive) { this.boss.die(); this.bossActive = false; }
         this.waveIntermission = true;
-        this.intermissionTimer = 10.0;
+        this.intermissionTimer = 8.0;
         window.dispatchEvent(new CustomEvent('wave-cleared', { detail: wave }));
     }
 
     forceStartWave(wave) {
         if (this.currentWave === wave && !this.waveIntermission) return;
-
-        console.log(`[WaveSync] Force Starting Wave ${wave}`);
         this.currentWave = wave;
         this.waveIntermission = false;
-        this.zombiesToSpawn = Math.floor(10 * Math.pow(1.2, this.currentWave - 1));
+        this.bossActive = false;
+        this.bossSpawnPending = false;
+        this.zombiesToSpawn = this.getWaveZombieCount(wave);
+        this.zombiesSpawnedThisWave = 0;
         window.dispatchEvent(new CustomEvent('wave-start', { detail: wave }));
     }
 
@@ -507,3 +640,4 @@ export class ZombieManager {
         }
     }
 }
+

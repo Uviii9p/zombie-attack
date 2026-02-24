@@ -200,6 +200,65 @@ class Game {
                 this.multiplayer.sendWaveCleared(e.detail);
             }
         });
+
+        // Boss events
+        window.addEventListener('boss-spawn', (e) => {
+            const { name } = e.detail;
+            const bossAnnounce = document.getElementById('boss-announcement');
+            if (bossAnnounce) {
+                bossAnnounce.textContent = name;
+                bossAnnounce.classList.remove('hidden');
+                // Remove and re-add to restart animation
+                bossAnnounce.style.animation = 'none';
+                bossAnnounce.offsetHeight; // Trigger reflow
+                bossAnnounce.style.animation = '';
+                setTimeout(() => bossAnnounce.classList.add('hidden'), 2500);
+            }
+            const bossBar = document.getElementById('boss-health-bar');
+            if (bossBar) bossBar.classList.remove('hidden');
+        });
+
+        window.addEventListener('boss-health', (e) => {
+            const { ratio, name } = e.detail;
+            const fill = document.getElementById('boss-health-fill');
+            const nameEl = document.getElementById('boss-name-text');
+            if (fill) fill.style.width = (ratio * 100) + '%';
+            if (nameEl && name) nameEl.textContent = name;
+            if (ratio <= 0) {
+                const bossBar = document.getElementById('boss-health-bar');
+                if (bossBar) setTimeout(() => bossBar.classList.add('hidden'), 1000);
+            }
+        });
+
+        window.addEventListener('boss-defeated', (e) => {
+            this.ui.announceWave('BOSS DEFEATED!', '#ffd700');
+        });
+
+        window.addEventListener('wave-countdown', (e) => {
+            const num = e.detail;
+            const cdEl = document.getElementById('wave-countdown');
+            if (cdEl) {
+                cdEl.textContent = num;
+                cdEl.classList.remove('hidden');
+                cdEl.style.animation = 'none';
+                cdEl.offsetHeight;
+                cdEl.style.animation = '';
+                setTimeout(() => cdEl.classList.add('hidden'), 900);
+            }
+        });
+
+        window.addEventListener('wave-start', (e) => {
+            const wc = document.getElementById('wave-counter');
+            if (wc) wc.textContent = 'WAVE ' + e.detail;
+        });
+
+        window.addEventListener('screen-shake', (e) => {
+            const container = document.getElementById('game-container');
+            if (container) {
+                container.classList.add('screen-shake');
+                setTimeout(() => container.classList.remove('screen-shake'), 500);
+            }
+        });
     }
 
     createWeather() {
@@ -1045,11 +1104,25 @@ class Game {
                 this.houseHealth = this.maxHouseHealth; this.ui.updateHouseHealth(100);
                 this.createUpgradeSparkles(new THREE.Vector3(0, 5, 0), 0xffff00);
                 ok = true;
-            } else if (type === 'npc' && id === 'bodyguard') {
-                const pos = this.player.group.position.clone().add(new THREE.Vector3(2, 0, 2));
-                const s = new Soldier(this.scene, pos);
+            } else if (type === 'npc') {
+                let guardType = 'ak47';
+                let pos;
+                if (id === 'bodyguard_rpg' || id === 'bodyguard-rpg') {
+                    guardType = 'rpg';
+                    pos = this.player.group.position.clone().add(new THREE.Vector3(3, 0, 3));
+                } else if (id === 'bodyguard_sniper' || id === 'bodyguard-sniper') {
+                    guardType = 'sniper';
+                    // Sniper spawns on rooftop
+                    const rx = -3 + Math.random() * 6;
+                    const rz = -3 + Math.random() * 6;
+                    pos = new THREE.Vector3(rx, 8.5, rz);
+                } else {
+                    // Default AK47 guard
+                    pos = this.player.group.position.clone().add(new THREE.Vector3(2, 0, 2));
+                }
+                const s = new Soldier(this.scene, pos, guardType);
                 this.soldiers.push(s);
-                this.createUpgradeSparkles(pos, 0x00ff00);
+                this.createUpgradeSparkles(pos, guardType === 'sniper' ? 0x3366ff : (guardType === 'rpg' ? 0xff6600 : 0x00ff00));
                 ok = true;
             } else if (type === 'ammo') {
                 const ammoAmounts = { 'AK47': 30, 'Sniper': 10, 'RPG': 5 };

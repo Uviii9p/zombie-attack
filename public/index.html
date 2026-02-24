@@ -57,6 +57,17 @@
         <!-- UI Elements -->
         <div id="ui-layer">
             <div id="wave-announcement" class="wave-announcement hidden">WAVE 1</div>
+            <div id="boss-announcement" class="boss-announcement hidden">BOSS INCOMING</div>
+            <div id="wave-countdown" class="wave-countdown hidden">5</div>
+            <!-- Boss Health Bar -->
+            <div id="boss-health-bar" class="boss-health-container hidden">
+                <div id="boss-name-text" class="boss-name">BOSS</div>
+                <div class="boss-bar-track">
+                    <div id="boss-health-fill" class="boss-bar-fill"></div>
+                </div>
+            </div>
+            <!-- Wave Counter -->
+            <div id="wave-counter" class="wave-counter">WAVE 1</div>
             <div id="stats-panel">
                 <div class="stat-item">
                     <label>PLAYER HP</label>
@@ -187,9 +198,19 @@
                         <button class="buy-btn" data-cost="500">500 Coins</button>
                     </div>
                     <div class="shop-item" data-type="npc" data-id="bodyguard">
-                        <h3>ELITE BODYGUARD</h3>
-                        <p>AI Soldier with AK47</p>
-                        <button class="buy-btn" data-cost="10000">10,000 Coins</button>
+                        <h3>🔫 ASSAULT GUARD</h3>
+                        <p>AI Soldier with AK47. Fast fire rate.</p>
+                        <button class="buy-btn" data-cost="8000">8,000 Coins</button>
+                    </div>
+                    <div class="shop-item" data-type="npc" data-id="bodyguard_rpg">
+                        <h3>💥 HEAVY GUARD</h3>
+                        <p>RPG Soldier. Explosive area damage.</p>
+                        <button class="buy-btn" data-cost="12000">12,000 Coins</button>
+                    </div>
+                    <div class="shop-item" data-type="npc" data-id="bodyguard_sniper">
+                        <h3>🎯 MARKSMAN</h3>
+                        <p>Sniper on rooftop. Long range & high damage.</p>
+                        <button class="buy-btn" data-cost="15000">15,000 Coins</button>
                     </div>
                 </div>
                 <button id="close-shop" class="btn-primary">Close</button>
