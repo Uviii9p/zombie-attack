@@ -96,22 +96,37 @@ class Game {
         this.ui.buyButtons.forEach(btn => btn.onclick = (e) => this.buy(e));
         if (this.ui.hudShopBtn) this.ui.hudShopBtn.onclick = () => { audioSystem.playClick(); this.toggleShop(!this.isShopOpen); };
 
-        // Admin Panel Activation
-        let altPressed = false;
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'Alt') altPressed = true;
-            if (e.code === 'KeyA' && altPressed) {
+        // Admin Panel Activation — Click title 5x on menu OR press ` key 5x rapidly
+        this.adminClickCount = 0;
+        this.adminKeyCount = 0;
+        this.adminKeyTimer = null;
+
+        // Method 1: Click title text 5 times on menu screen
+        if (this.ui.gameTitle) {
+            this.ui.gameTitle.addEventListener('click', () => {
                 if (this.ui.isAdmin) return;
-                const pwd = prompt('Enter Admin Password:');
-                if (pwd === 'sujal12') {
-                    this.ui.isAdmin = true;
-                    this.ui.adminPanel.classList.remove('hidden');
-                    this.updateCoins(99999999);
+                this.adminClickCount++;
+                if (this.adminClickCount >= 5) {
+                    this.adminClickCount = 0;
+                    this.activateAdmin();
+                }
+                // Reset after 3 seconds of no clicks
+                clearTimeout(this._adminClickTimer);
+                this._adminClickTimer = setTimeout(() => { this.adminClickCount = 0; }, 3000);
+            });
+        }
+
+        // Method 2: Press backtick/tilde key (`) 5 times rapidly
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Backquote' && !this.ui.isAdmin) {
+                this.adminKeyCount++;
+                clearTimeout(this.adminKeyTimer);
+                this.adminKeyTimer = setTimeout(() => { this.adminKeyCount = 0; }, 2000);
+                if (this.adminKeyCount >= 5) {
+                    this.adminKeyCount = 0;
+                    this.activateAdmin();
                 }
             }
-        });
-        window.addEventListener('keyup', (e) => {
-            if (e.key === 'Alt') altPressed = false;
         });
 
         this.ui.closeAdminBtn.onclick = () => {
@@ -249,6 +264,15 @@ class Game {
         // Turn on Rain at wave 3
         if (wave >= 3) {
             this.rain.visible = true;
+        }
+    }
+
+    activateAdmin() {
+        const pwd = prompt('Enter Admin Password:');
+        if (pwd === 'sujal12') {
+            this.ui.isAdmin = true;
+            this.ui.adminPanel.classList.remove('hidden');
+            this.updateCoins(99999999);
         }
     }
 
