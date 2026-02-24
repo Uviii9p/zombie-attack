@@ -295,12 +295,32 @@
         });
     }
 
-    // Check for rejoin session on init
-    const lastRoom = localStorage.getItem('ds_last_room');
-    const username = localStorage.getItem('ds_username');
-    if (lastRoom && username && rejoinPopup && rejoinRoomCode) {
-        rejoinRoomCode.textContent = lastRoom;
-        rejoinPopup.classList.remove('hidden');
+    // Check for rejoin session AFTER auth completes (menu-screen becomes visible)
+    function tryShowRejoinPopup() {
+        const lastRoom = localStorage.getItem('ds_last_room');
+        const username = localStorage.getItem('ds_username');
+        if (lastRoom && username && rejoinPopup && rejoinRoomCode) {
+            rejoinRoomCode.textContent = lastRoom;
+            rejoinPopup.classList.remove('hidden');
+        }
+    }
+
+    // Wait for auth to finish — watch for menu-screen becoming visible
+    if (menuScreen) {
+        // If menu is already visible (auto-login completed fast)
+        if (!menuScreen.classList.contains('hidden')) {
+            tryShowRejoinPopup();
+        } else {
+            // Watch for it to become visible
+            const observer = new MutationObserver(() => {
+                if (!menuScreen.classList.contains('hidden')) {
+                    observer.disconnect();
+                    // Small delay so the menu renders first
+                    setTimeout(tryShowRejoinPopup, 300);
+                }
+            });
+            observer.observe(menuScreen, { attributes: true, attributeFilter: ['class'] });
+        }
     }
 
     function renderPlayers(data) {
