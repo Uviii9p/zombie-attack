@@ -23,6 +23,7 @@ class Game {
         this.house = null;
 
         this.fence = { health: 5000, maxHealth: 5000, level: 1, mesh: null };
+        this.fenceColliders = [];
         this.houseHealth = 1000;
         this.maxHouseHealth = 1000;
         this.houseLights = [];
@@ -379,18 +380,20 @@ class Game {
         // West wall
         addPart(new THREE.BoxGeometry(wallT, wallH, houseSize), wallMat, -houseSize / 2, floorOneY + 2, 0);
 
-        // ===== STAIRS (Ground to First Floor) =====
-        const stepCount = 16;
+        // ===== STAIRS (Ground to First Floor) — SOLID RAMP =====
+        const stepCount = 10;
         const stepH = 4 / stepCount;
-        const stepW = 3.0;
-        const stepD = 0.7;
+        const stepW = 3.5;
+        const stepD = 1.2;
         for (let i = 0; i < stepCount; i++) {
+            // Each step is a thick box that overlaps with the next for solid footing
+            const totalHeight = (i + 1) * stepH;
             addPart(
-                new THREE.BoxGeometry(stepW, stepH, stepD),
+                new THREE.BoxGeometry(stepW, totalHeight, stepD),
                 trimMat,
                 4.0,
-                (i * stepH) + stepH / 2,
-                -5 + (i * (houseSize * 0.55 / stepCount)),
+                totalHeight / 2,
+                -5 + (i * (houseSize * 0.6 / stepCount)),
                 0,
                 'floor'
             );
@@ -401,14 +404,15 @@ class Game {
         // Terrace floor
         addPart(new THREE.BoxGeometry(houseSize, 0.3, houseSize), floorMat, 0, topY, 0, 0, 'floor');
 
-        // Stairs from first floor to terrace (east side)
+        // Stairs from first floor to terrace (west side) — SOLID RAMP
         for (let i = 0; i < stepCount; i++) {
+            const totalHeight = (i + 1) * stepH;
             addPart(
-                new THREE.BoxGeometry(stepW, stepH, stepD),
+                new THREE.BoxGeometry(stepW, totalHeight, stepD),
                 trimMat,
                 -4.0,
-                floorOneY + (i * stepH) + stepH / 2,
-                -5 + (i * (houseSize * 0.55 / stepCount)),
+                floorOneY + totalHeight / 2,
+                -5 + (i * (houseSize * 0.6 / stepCount)),
                 0,
                 'floor'
             );
@@ -516,47 +520,89 @@ class Game {
     createFence() {
         if (this.fence.mesh) this.scene.remove(this.fence.mesh);
         this.fence.mesh = new THREE.Group();
+        this.fenceColliders = []; // Collision array for fence
         const rad = 13, count = 32;
         const level = this.fence.level || 1;
+
+        // Gate opening: skip posts near angle ~PI/2 (south side, z positive)
+        const gateAngle = Math.PI / 2; // South
+        const gateWidth = 0.2; // ~0.2 radians gap = ~2.5 unit gap at radius 13
 
         // Visual upgrades per level
         let color, height, metalness, roughness;
         if (level >= 4) {
-            color = 0x666666; height = 4.0; metalness = 0.9; roughness = 0.2; // Steel fortress
+            color = 0x666666; height = 4.0; metalness = 0.9; roughness = 0.2;
         } else if (level >= 3) {
-            color = 0x555555; height = 3.5; metalness = 0.7; roughness = 0.3; // Iron fence
+            color = 0x555555; height = 3.5; metalness = 0.7; roughness = 0.3;
         } else if (level >= 2) {
-            color = 0x444444; height = 3.0; metalness = 0.4; roughness = 0.5; // Reinforced
+            color = 0x444444; height = 3.0; metalness = 0.4; roughness = 0.5;
         } else {
-            color = 0x3a2510; height = 2.5; metalness = 0.0; roughness = 0.9; // Wooden
+            color = 0x3a2510; height = 2.5; metalness = 0.0; roughness = 0.9;
         }
 
         const postMat = new THREE.MeshStandardMaterial({ color, metalness, roughness });
 
         for (let i = 0; i < count; i++) {
             const a = (i / count) * Math.PI * 2;
-            const p = new THREE.Mesh(new THREE.BoxGeometry(0.3, height, 0.3), postMat);
+            // Skip posts in the gate area
+            const angleDiff = Math.abs(a - gateAngle);
+            if (angleDiff < gateWidth || angleDiff > (Math.PI * 2 - gateWidth)) continue;
+
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.4, height, 0.4), postMat);
             p.position.set(Math.cos(a) * rad, height / 2, Math.sin(a) * rad);
             p.castShadow = true;
+            p.userData.type = 'wall';
             this.fence.mesh.add(p);
+            this.fenceColliders.push(p);
         }
 
-        // Add horizontal connecting bars at level 2+
+        // Gate frame (two thick posts on either side of the opening)
+        const gateMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, metalness: 0.3, roughness: 0.7 });
+        const gateA1 = gateAngle - gateWidth;
+        const gateA2 = gateAngle + gateWidth;
+        const gatePost1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, height + 0.5, 0.5), gateMat);
+        gatePost1.position.set(Math.cos(gateA1) * rad, (height + 0.5) / 2, Math.sin(gateA1) * rad);
+        gatePost1.castShadow = true;
+        gatePost1.userData.type = 'wall';
+        this.fence.mesh.add(gatePost1);
+        this.fenceColliders.push(gatePost1);
+
+        const gatePost2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, height + 0.5, 0.5), gateMat);
+        gatePost2.position.set(Math.cos(gateA2) * rad, (height + 0.5) / 2, Math.sin(gateA2) * rad);
+        gatePost2.castShadow = true;
+        gatePost2.userData.type = 'wall';
+        this.fence.mesh.add(gatePost2);
+        this.fenceColliders.push(gatePost2);
+
+        // Gate top beam
+        const beamLen = Math.sqrt(
+            Math.pow(Math.cos(gateA2) * rad - Math.cos(gateA1) * rad, 2) +
+            Math.pow(Math.sin(gateA2) * rad - Math.sin(gateA1) * rad, 2)
+        );
+        const beamMidA = gateAngle;
+        const gateBeam = new THREE.Mesh(new THREE.BoxGeometry(beamLen, 0.3, 0.3), gateMat);
+        gateBeam.position.set(Math.cos(beamMidA) * rad, height + 0.2, Math.sin(beamMidA) * rad);
+        gateBeam.rotation.y = -(beamMidA) + Math.PI / 2;
+        this.fence.mesh.add(gateBeam);
+
+        // Horizontal connecting panels between posts (solid wall sections)
         if (level >= 2) {
             const barMat = new THREE.MeshStandardMaterial({ color, metalness: metalness + 0.1, roughness });
             for (let i = 0; i < count; i++) {
                 const a1 = (i / count) * Math.PI * 2;
                 const a2 = ((i + 1) / count) * Math.PI * 2;
+                // Skip gate area
                 const midA = (a1 + a2) / 2;
+                const angleDiff = Math.abs(midA - gateAngle);
+                if (angleDiff < gateWidth + 0.1 || angleDiff > (Math.PI * 2 - gateWidth - 0.1)) continue;
+
                 const barLen = 2 * rad * Math.sin(Math.PI / count);
 
-                // Top bar
                 const bar = new THREE.Mesh(new THREE.BoxGeometry(barLen, 0.1, 0.1), barMat);
                 bar.position.set(Math.cos(midA) * rad, height * 0.85, Math.sin(midA) * rad);
                 bar.rotation.y = -midA + Math.PI / 2;
                 this.fence.mesh.add(bar);
 
-                // Mid bar
                 const bar2 = new THREE.Mesh(new THREE.BoxGeometry(barLen, 0.1, 0.1), barMat);
                 bar2.position.set(Math.cos(midA) * rad, height * 0.45, Math.sin(midA) * rad);
                 bar2.rotation.y = -midA + Math.PI / 2;
@@ -564,11 +610,13 @@ class Game {
             }
         }
 
-        // Barbed wire effect at level 4+
+        // Barbed wire at level 4+
         if (level >= 4) {
             const wireMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9, roughness: 0.1 });
             for (let i = 0; i < count; i++) {
                 const a = (i / count) * Math.PI * 2;
+                const angleDiff = Math.abs(a - gateAngle);
+                if (angleDiff < gateWidth || angleDiff > (Math.PI * 2 - gateWidth)) continue;
                 const wire = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.03, 4, 6), wireMat);
                 wire.position.set(Math.cos(a) * rad, height + 0.2, Math.sin(a) * rad);
                 wire.rotation.x = Math.PI / 2;
@@ -868,7 +916,8 @@ class Game {
         this.weaponSystem.update(d);
 
         const houseParts = (this.houseHealth > 0) ? (this.houseColliders || []) : [];
-        this.player.update(d, [...houseParts]);
+        const fenceParts = (this.fence.health > 0 && this.fenceColliders) ? this.fenceColliders : [];
+        this.player.update(d, [...houseParts, ...fenceParts]);
 
         // Follow vehicle with camera if driving
         if (this.player.isDriving) {
