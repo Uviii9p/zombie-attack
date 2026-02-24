@@ -658,7 +658,7 @@ class Game {
         // ===== INTERACTIVE DOOR =====
         const doorGroup = new THREE.Group();
         // Door is a wooden panel that swings open
-        const doorWidth = beamLen - 0.5;
+        const doorWidth = beamLen; // Covers the full beam span (post center to post center)
         const doorHeight = height - 0.3;
         const doorMat = new THREE.MeshStandardMaterial({ color: 0x6B4226, roughness: 0.8, metalness: 0.1 });
 
@@ -694,6 +694,7 @@ class Game {
         // Position the door group at the hinge (left gate post)
         doorGroup.position.set(gp1x, doorHeight / 2 + 0.15, gp1z);
         doorGroup.rotation.y = -(gateAngle) + Math.PI / 2;
+        this.gateDoorBaseRotation = doorGroup.rotation.y;
 
         this.gateDoor = doorGroup;
         this.gateDoorOpen = false;
@@ -1035,12 +1036,13 @@ class Game {
         this.weaponSystem.update(d);
 
         // Animate gate door
-        if (this.gateDoor && this.gateDoorAngle !== this.gateDoorTargetAngle) {
+        if (this.gateDoor && (this.gateDoorAngle !== this.gateDoorTargetAngle || this.gateDoor.rotation.y !== (this.gateDoorBaseRotation || 0) + this.gateDoorAngle)) {
             this.gateDoorAngle += (this.gateDoorTargetAngle - this.gateDoorAngle) * 0.1;
             if (Math.abs(this.gateDoorAngle - this.gateDoorTargetAngle) < 0.01) {
                 this.gateDoorAngle = this.gateDoorTargetAngle;
             }
-            this.gateDoor.rotation.y = (-(Math.PI / 2) + Math.PI / 2) + this.gateDoorAngle;
+            this.gateDoor.rotation.y = (this.gateDoorBaseRotation || 0) + this.gateDoorAngle;
+            if (this.gateDoorCollider) this.gateDoorCollider.updateMatrixWorld(true);
         }
 
         const houseParts = (this.houseHealth > 0) ? (this.houseColliders || []) : [];
