@@ -21,6 +21,36 @@
 </head>
 
 <body>
+    <script>
+        window.addEventListener('error', function (e) {
+            const err = document.createElement('div');
+            err.style = "position:absolute; z-index:99999; background:rgba(255,0,0,0.8); color:white; top:0; left:0; width:100%; padding:10px; font-family:monospace;";
+            err.innerText = "JS Error: " + e.message + " at " + e.filename + ":" + e.lineno;
+            document.body.appendChild(err);
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+            const err = document.createElement('div');
+            err.style = "position:absolute; z-index:99999; background:rgba(255,100,0,0.8); color:white; top:40px; left:0; width:100%; padding:10px; font-family:monospace;";
+            err.innerText = "Promise Error: " + (e.reason && e.reason.stack ? e.reason.stack : e.reason);
+            document.body.appendChild(err);
+        });
+    </script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            setTimeout(() => {
+                const canvas = document.querySelector('canvas');
+                if (canvas) {
+                    canvas.addEventListener('webglcontextlost', function (e) {
+                        e.preventDefault();
+                        const err = document.createElement('div');
+                        err.style = "position:absolute; z-index:99999; background:rgba(200,0,255,0.8); color:white; top:80px; left:0; width:100%; padding:10px; font-family:monospace; font-weight:bold;";
+                        err.innerText = "CRITICAL: WebGL Context Lost! Your GPU may be crashing or running out of memory.";
+                        document.body.appendChild(err);
+                    }, false);
+                }
+            }, 1000);
+        });
+    </script>
     <div id="game-container">
         <!-- Damage Flash Overlay -->
         <div id="damage-overlay"></div>

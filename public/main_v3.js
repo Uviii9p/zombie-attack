@@ -97,20 +97,22 @@ class Game {
         if (this.ui.hudShopBtn) this.ui.hudShopBtn.onclick = () => { audioSystem.playClick(); this.toggleShop(!this.isShopOpen); };
 
         // Admin Panel Activation
-        this.ui.gameTitle.onclick = () => {
-            if (this.ui.isAdmin) return;
-            this.ui.titleClicks++;
-            if (this.ui.titleClicks >= 10) {
+        let altPressed = false;
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Alt') altPressed = true;
+            if (e.code === 'KeyA' && altPressed) {
+                if (this.ui.isAdmin) return;
                 const pwd = prompt('Enter Admin Password:');
                 if (pwd === 'sujal12') {
                     this.ui.isAdmin = true;
                     this.ui.adminPanel.classList.remove('hidden');
-                    // Give unlimited coins explicitly through updateCoins to trigger server save
                     this.updateCoins(99999999);
                 }
-                this.ui.titleClicks = 0;
             }
-        };
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'Alt') altPressed = false;
+        });
 
         this.ui.closeAdminBtn.onclick = () => {
             this.ui.adminPanel.classList.add('hidden');
