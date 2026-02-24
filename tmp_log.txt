@@ -1,0 +1,10 @@
+0438272 Ultra-attractive house overhaul with balconies, neon lighting, furniture, and landscaping
+0f7ceec Upgrade House to Modern Survival Mansion with neon, glass, and better materials
+eef4a94 Add 4-story house, rooftop cover, Perks system, and blood splatters
+f6c8836 Synchronization: Allow any player to trigger wave completion across the room
+2e16671 Enhance multiplayer rejoining system and room persistence
+6bd06e8 Feature: Add Elite Bodyguard, Upgrade Sparkles, and Proximity Voice Chat
+5e7bd59 Fix: Stairs climbing, add house/player lights and damage effects
+479caab Feature: Add ammo packs to the survival shop
+7bc218e Fix: Enable Vercel to work fully by using Railway as the persistent multiplayer backend
+5dd9eac Fix: Add connection error handling to lobby

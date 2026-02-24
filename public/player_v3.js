@@ -134,7 +134,7 @@ export class Player {
         window.addEventListener('keydown', (e) => this.keys[e.code] = true);
         window.addEventListener('keyup', (e) => this.keys[e.code] = false);
         window.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement === document.body) {
+            if (document.pointerLockElement) {
                 this.mouseRotation.y -= e.movementX * 0.002;
                 this.mouseRotation.x -= e.movementY * 0.002;
                 this.mouseRotation.x = Math.max(-1.4, Math.min(1.4, this.mouseRotation.x));

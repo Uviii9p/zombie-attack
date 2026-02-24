@@ -1138,3 +1138,107 @@ p.subtitle {
         grid-template-columns: 1fr;
     }
 }
+
+/* ==================== SNIPER SCOPE OVERLAY ==================== */
+#scope-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 50;
+    pointer-events: none;
+}
+
+.scope-vignette {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle at center,
+            transparent 20%,
+            rgba(0, 0, 0, 0.7) 35%,
+            rgba(0, 0, 0, 0.95) 45%,
+            #000 50%);
+}
+
+.scope-reticle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 300px;
+    height: 300px;
+    transform: translate(-50%, -50%);
+}
+
+.scope-line {
+    position: absolute;
+    background: rgba(0, 255, 80, 0.8);
+    box-shadow: 0 0 4px rgba(0, 255, 80, 0.5);
+}
+
+.scope-h {
+    top: 50%;
+    left: 0;
+    width: 100%;
+    height: 1px;
+    transform: translateY(-50%);
+}
+
+.scope-v {
+    top: 0;
+    left: 50%;
+    width: 1px;
+    height: 100%;
+    transform: translateX(-50%);
+}
+
+.scope-dot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 6px;
+    height: 6px;
+    background: rgba(255, 50, 50, 0.9);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 6px rgba(255, 50, 50, 0.7);
+}
+
+.scope-tick {
+    position: absolute;
+    background: rgba(0, 255, 80, 0.6);
+}
+
+.scope-tick-l {
+    top: 50%;
+    left: 25%;
+    width: 12px;
+    height: 2px;
+    transform: translateY(-50%);
+}
+
+.scope-tick-r {
+    top: 50%;
+    right: 25%;
+    width: 12px;
+    height: 2px;
+    transform: translateY(-50%);
+}
+
+.scope-tick-t {
+    left: 50%;
+    top: 25%;
+    width: 2px;
+    height: 12px;
+    transform: translateX(-50%);
+}
+
+.scope-tick-b {
+    left: 50%;
+    bottom: 25%;
+    width: 2px;
+    height: 12px;
+    transform: translateX(-50%);
+}

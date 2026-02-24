@@ -104,7 +104,7 @@ export class GameUI {
     toggleShop(show) {
         this.shopScreen.classList.toggle('hidden', !show);
         if (show) document.exitPointerLock();
-        else document.body.requestPointerLock();
+        else { const c = document.querySelector('canvas'); if (c) c.requestPointerLock(); }
     }
 
     toggleBackpack(show, player) {
@@ -113,7 +113,7 @@ export class GameUI {
             document.exitPointerLock();
             this.renderInventory(player);
         } else {
-            document.body.requestPointerLock();
+            const c = document.querySelector('canvas'); if (c) c.requestPointerLock();
         }
     }
 

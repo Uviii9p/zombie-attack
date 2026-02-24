@@ -147,7 +147,7 @@ class Game {
 
         document.addEventListener('pointerlockchange', () => {
             if (this.gameStarted && !this.isGameOver) {
-                if (document.pointerLockElement !== document.body) {
+                if (!document.pointerLockElement) {
                     // Pause menu automatically applies if we lose pointer lock
                     if (!this.isShopOpen && !this.isBackpackOpen && !this.isSettingsOpen) {
                         this.toggleSettings(true);
@@ -255,7 +255,7 @@ class Game {
     start() {
         this.gameStarted = true;
         this.ui.hideMenu();
-        document.body.requestPointerLock();
+        this.renderer.domElement.requestPointerLock();
     }
 
     toggleSettings(show) {
@@ -267,7 +267,7 @@ class Game {
         const view = this.ui.viewSelect.value;
         this.player.viewMode = view;
         this.toggleSettings(false);
-        document.body.requestPointerLock();
+        this.renderer.domElement.requestPointerLock();
     }
 
     leaveGame() {
@@ -301,131 +301,190 @@ class Game {
             return m;
         };
 
-        const buildFloor = (level, size = 12) => {
-            const y = level * 4;
-            // Floor
-            addPart(new THREE.BoxGeometry(size, 0.4, size), floorMat, 0, y, 0, 0, 'floor');
+        const houseSize = 12;
 
-            // Walls (North, South, East, West)
-            const wallH = 4;
-            const wallW = size;
-            const wallT = 0.4;
+        // ===== GROUND FLOOR (Level 0) =====
+        // Floor
+        addPart(new THREE.BoxGeometry(houseSize, 0.4, houseSize), floorMat, 0, 0, 0, 0, 'floor');
 
-            // South (with WIDE Doorway on level 0)
-            if (level === 0) {
-                // Front walls with a much wider gap (4 units)
-                const gap = 4;
-                const sideW = (size - gap) / 2;
-                addPart(new THREE.BoxGeometry(sideW, wallH, wallT), wallMat, -(gap / 2 + sideW / 2), y + 2, size / 2);
-                addPart(new THREE.BoxGeometry(sideW, wallH, wallT), wallMat, (gap / 2 + sideW / 2), y + 2, size / 2);
-                addPart(new THREE.BoxGeometry(gap, 1, wallT), wallMat, 0, y + 3.5, size / 2);
-            } else {
-                addPart(new THREE.BoxGeometry(wallW, wallH, wallT), wallMat, 0, y + 2, size / 2);
-            }
+        // Walls - Ground Floor (4 units tall)
+        const wallH = 4;
+        const wallT = 0.4;
 
-            // North
-            addPart(new THREE.BoxGeometry(wallW, wallH, wallT), wallMat, 0, y + 2, -size / 2);
-            // East
-            addPart(new THREE.BoxGeometry(wallT, wallH, size), wallMat, size / 2, y + 2, 0);
-            // West
-            addPart(new THREE.BoxGeometry(wallT, wallH, size), wallMat, -size / 2, y + 2, 0);
+        // South wall with WIDE doorway (5 units gap)
+        const gap = 5;
+        const sideW = (houseSize - gap) / 2;
+        addPart(new THREE.BoxGeometry(sideW, wallH, wallT), wallMat, -(gap / 2 + sideW / 2), 2, houseSize / 2);
+        addPart(new THREE.BoxGeometry(sideW, wallH, wallT), wallMat, (gap / 2 + sideW / 2), 2, houseSize / 2);
+        addPart(new THREE.BoxGeometry(gap, 0.8, wallT), wallMat, 0, 3.6, houseSize / 2); // Door top frame
 
-            // Ceiling (except for level 2 which is the roof)
-            if (level < 2) {
-                // Add ceiling with a hole for stairs (hole on one side)
-                const ceilT = 0.2;
-                addPart(new THREE.BoxGeometry(size, ceilT, size * 0.5), floorMat, 0, y + 4, size * 0.25, 0, 'floor');
-                addPart(new THREE.BoxGeometry(size * 0.5, ceilT, size * 0.5), floorMat, -size * 0.25, y + 4, -size * 0.25, 0, 'floor');
-            }
-        };
+        // North wall
+        addPart(new THREE.BoxGeometry(houseSize, wallH, wallT), wallMat, 0, 2, -houseSize / 2);
+        // East wall
+        addPart(new THREE.BoxGeometry(wallT, wallH, houseSize), wallMat, houseSize / 2, 2, 0);
+        // West wall
+        addPart(new THREE.BoxGeometry(wallT, wallH, houseSize), wallMat, -houseSize / 2, 2, 0);
 
-        const buildStairs = (level) => {
-            const baseY = level * 4;
-            const stepCount = 14;
-            const stepH = 4 / stepCount;
-            const stepW = 3.5;
-            const stepD = 2.0;
+        // Ground floor ceiling with stair hole on east side
+        const ceilT = 0.3;
+        // Main ceiling (covers most of floor)
+        addPart(new THREE.BoxGeometry(houseSize * 0.6, ceilT, houseSize), floorMat, -houseSize * 0.2, 4, 0, 0, 'floor');
+        // Small ceiling piece north-east
+        addPart(new THREE.BoxGeometry(houseSize * 0.4, ceilT, houseSize * 0.4), floorMat, houseSize * 0.3, 4, -houseSize * 0.3, 0, 'floor');
+        // Stair hole is at east side, south half (approx x: 2-6, z: 0-6)
 
-            for (let i = 0; i < stepCount; i++) {
-                addPart(
-                    new THREE.BoxGeometry(stepW, stepH, stepD),
-                    trimMat,
-                    3.5,
-                    baseY + (i * stepH) + stepH / 2,
-                    -5 + (i * 0.35), // Fit within hole (ends at ~ -0.45)
-                    0,
-                    'floor'
-                );
-            }
-        };
+        // ===== FIRST FLOOR (Level 1) =====
+        // Walls - First Floor
+        const floorOneY = 4;
+        // South wall with window openings
+        const winGap = 2.0;
+        const winSideW = (houseSize - winGap) / 2;
+        addPart(new THREE.BoxGeometry(winSideW, wallH, wallT), wallMat, -(winGap / 2 + winSideW / 2), floorOneY + 2, houseSize / 2);
+        addPart(new THREE.BoxGeometry(winSideW, wallH, wallT), wallMat, (winGap / 2 + winSideW / 2), floorOneY + 2, houseSize / 2);
+        addPart(new THREE.BoxGeometry(winGap, 1.2, wallT), wallMat, 0, floorOneY + 3.4, houseSize / 2); // Top of window
+        addPart(new THREE.BoxGeometry(winGap, 1.0, wallT), wallMat, 0, floorOneY + 0.5, houseSize / 2); // Bottom of window
 
-        // Construction
-        for (let i = 0; i < 3; i++) {
-            buildFloor(i, 12 - i); // Slightly larger house base
-            if (i < 2) buildStairs(i);
+        // North wall with window
+        addPart(new THREE.BoxGeometry(winSideW, wallH, wallT), wallMat, -(winGap / 2 + winSideW / 2), floorOneY + 2, -houseSize / 2);
+        addPart(new THREE.BoxGeometry(winSideW, wallH, wallT), wallMat, (winGap / 2 + winSideW / 2), floorOneY + 2, -houseSize / 2);
+        addPart(new THREE.BoxGeometry(winGap, 1.2, wallT), wallMat, 0, floorOneY + 3.4, -houseSize / 2);
+        addPart(new THREE.BoxGeometry(winGap, 1.0, wallT), wallMat, 0, floorOneY + 0.5, -houseSize / 2);
+
+        // East wall
+        addPart(new THREE.BoxGeometry(wallT, wallH, houseSize), wallMat, houseSize / 2, floorOneY + 2, 0);
+        // West wall
+        addPart(new THREE.BoxGeometry(wallT, wallH, houseSize), wallMat, -houseSize / 2, floorOneY + 2, 0);
+
+        // ===== STAIRS (Ground to First Floor) =====
+        const stepCount = 16;
+        const stepH = 4 / stepCount;
+        const stepW = 3.0;
+        const stepD = 0.7;
+        for (let i = 0; i < stepCount; i++) {
+            addPart(
+                new THREE.BoxGeometry(stepW, stepH, stepD),
+                trimMat,
+                4.0,
+                (i * stepH) + stepH / 2,
+                -5 + (i * (houseSize * 0.55 / stepCount)),
+                0,
+                'floor'
+            );
         }
 
-        // Rooftop Railing
-        const railH = 1.2;
-        const topSize = 8;
-        const topY = 12;
-        addPart(new THREE.BoxGeometry(topSize, 0.2, topSize), floorMat, 0, topY, 0, 0, 'floor'); // Top floor surface
+        // ===== OPEN TERRACE / ROOF (Level 2) =====
+        const topY = 8;
+        // Terrace floor
+        addPart(new THREE.BoxGeometry(houseSize, 0.3, houseSize), floorMat, 0, topY, 0, 0, 'floor');
 
-        const railGeoNS = new THREE.BoxGeometry(topSize, railH, 0.1);
-        const railGeoEW = new THREE.BoxGeometry(0.1, railH, topSize);
-        addPart(railGeoNS, trimMat, 0, topY + railH / 2, topSize / 2);
-        addPart(railGeoNS, trimMat, 0, topY + railH / 2, -topSize / 2);
-        addPart(railGeoEW, trimMat, topSize / 2, topY + railH / 2, 0);
-        addPart(railGeoEW, trimMat, -topSize / 2, topY + railH / 2, 0);
+        // Stairs from first floor to terrace (east side)
+        for (let i = 0; i < stepCount; i++) {
+            addPart(
+                new THREE.BoxGeometry(stepW, stepH, stepD),
+                trimMat,
+                -4.0,
+                floorOneY + (i * stepH) + stepH / 2,
+                -5 + (i * (houseSize * 0.55 / stepCount)),
+                0,
+                'floor'
+            );
+        }
 
-        // Windows (Visual only)
-        const winGeo = new THREE.PlaneGeometry(1.5, 1.5);
-        for (let l = 0; l < 3; l++) {
-            const y = l * 4 + 2.5;
-            const z = (10 - l) / 2 + 0.05;
-            const x = (10 - l) / 2 + 0.05;
+        // Stair hole in first floor ceiling for terrace access
+        // Already open since we don't add a ceiling to level 1
 
-            // Add some windows to front/sides
-            const w1 = new THREE.Mesh(winGeo, windowMat); w1.position.set(2, y, z); this.house.add(w1);
-            const w2 = new THREE.Mesh(winGeo, windowMat); w2.position.set(-2, y, z); this.house.add(w2);
+        // Protective railing around terrace (waist-height, player can shoot over)
+        const railH = 1.0;
+        const railMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.6, roughness: 0.4 });
 
-            // Light for floors
+        // Rail posts at corners
+        const postGeo = new THREE.CylinderGeometry(0.08, 0.08, railH, 6);
+        const railPositions = [
+            [houseSize / 2 - 0.1, topY + railH / 2, houseSize / 2 - 0.1],
+            [-houseSize / 2 + 0.1, topY + railH / 2, houseSize / 2 - 0.1],
+            [houseSize / 2 - 0.1, topY + railH / 2, -houseSize / 2 + 0.1],
+            [-houseSize / 2 + 0.1, topY + railH / 2, -houseSize / 2 + 0.1],
+        ];
+        railPositions.forEach(p => {
+            const post = new THREE.Mesh(postGeo, railMat);
+            post.position.set(p[0], p[1], p[2]);
+            post.castShadow = true;
+            this.house.add(post);
+        });
+
+        // Horizontal rails (thin bars you can shoot through)
+        const hRailGeoNS = new THREE.BoxGeometry(houseSize, 0.08, 0.08);
+        const hRailGeoEW = new THREE.BoxGeometry(0.08, 0.08, houseSize);
+
+        // Top rail
+        addPart(hRailGeoNS, railMat, 0, topY + railH, houseSize / 2 - 0.1);
+        addPart(hRailGeoNS, railMat, 0, topY + railH, -houseSize / 2 + 0.1);
+        addPart(hRailGeoEW, railMat, houseSize / 2 - 0.1, topY + railH, 0);
+        addPart(hRailGeoEW, railMat, -houseSize / 2 + 0.1, topY + railH, 0);
+
+        // Mid rail
+        addPart(hRailGeoNS, railMat, 0, topY + railH * 0.5, houseSize / 2 - 0.1);
+        addPart(hRailGeoNS, railMat, 0, topY + railH * 0.5, -houseSize / 2 + 0.1);
+        addPart(hRailGeoEW, railMat, houseSize / 2 - 0.1, topY + railH * 0.5, 0);
+        addPart(hRailGeoEW, railMat, -houseSize / 2 + 0.1, topY + railH * 0.5, 0);
+
+        // Windows (glowing panes on first floor)
+        const wGeo = new THREE.PlaneGeometry(1.8, 1.5);
+        // South windows
+        const sw1 = new THREE.Mesh(wGeo, windowMat); sw1.position.set(0, floorOneY + 2, houseSize / 2 + 0.05); this.house.add(sw1);
+        // North windows
+        const nw1 = new THREE.Mesh(wGeo, windowMat); nw1.position.set(0, floorOneY + 2, -houseSize / 2 - 0.05); this.house.add(nw1);
+
+        // Interior lights for both floors
+        for (let l = 0; l < 2; l++) {
             const light = new THREE.PointLight(0xffaa00, 0, 15);
             light.position.set(0, l * 4 + 2.5, 0);
             this.house.add(light);
             this.houseLights.push(light);
         }
 
-        // BIG SEARCHLIGHT ON ROOF
+        // Searchlight on terrace
         const searchlightGroup = new THREE.Group();
-        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.4), trimMat);
-        searchlightGroup.add(base);
-
-        const head = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 0.8), roofMat);
-        head.rotation.x = Math.PI / 2;
-        head.position.y = 0.5;
-        searchlightGroup.add(head);
+        const sBase = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.4), trimMat);
+        searchlightGroup.add(sBase);
+        const sHead = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.6, 0.8), roofMat);
+        sHead.rotation.x = Math.PI / 2;
+        sHead.position.y = 0.5;
+        searchlightGroup.add(sHead);
 
         this.searchlight = new THREE.SpotLight(0xffffff, 0, 50, Math.PI / 6, 0.5);
         this.searchlight.position.set(0, 0.8, 0);
-        this.searchlight.target.position.set(0, -10, 20); // Aiming down and away
+        this.searchlight.target.position.set(0, -10, 20);
         searchlightGroup.add(this.searchlight);
         searchlightGroup.add(this.searchlight.target);
-
-        searchlightGroup.position.set(0, topY, 0);
+        searchlightGroup.position.set(0, topY + 0.3, 0);
         this.house.add(searchlightGroup);
 
-        // Crates for "survival" look
+        // Crates for survival look (ground floor inside)
         const crateGeo = new THREE.BoxGeometry(1, 1, 1);
         const crateMat = new THREE.MeshStandardMaterial({ color: 0x5d4037 });
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 4; i++) {
             const crate = new THREE.Mesh(crateGeo, crateMat);
-            crate.position.set(-3 + Math.random() * 6, 0.5, -3 + Math.random() * 6);
+            crate.position.set(-3 + Math.random() * 4, 0.5, -3 + Math.random() * 4);
             crate.rotation.y = Math.random() * Math.PI;
             crate.castShadow = true;
             this.house.add(crate);
             this.houseColliders.push(crate);
         }
+
+        // Sandbags on terrace for cover
+        const sandbagGeo = new THREE.BoxGeometry(2, 0.5, 0.6);
+        const sandbagMat = new THREE.MeshStandardMaterial({ color: 0x8B7355, roughness: 1.0 });
+        const sandbagPositions = [
+            [3, topY + 0.25, 5.5], [-3, topY + 0.25, 5.5],
+            [5.5, topY + 0.25, 0], [-5.5, topY + 0.25, 0],
+        ];
+        sandbagPositions.forEach(p => {
+            const sb = new THREE.Mesh(sandbagGeo, sandbagMat);
+            sb.position.set(p[0], p[1], p[2]);
+            sb.castShadow = true;
+            this.house.add(sb);
+        });
 
         this.scene.add(this.house);
     }
@@ -434,13 +493,65 @@ class Game {
         if (this.fence.mesh) this.scene.remove(this.fence.mesh);
         this.fence.mesh = new THREE.Group();
         const rad = 13, count = 32;
-        const color = this.fence.level > 1 ? 0x444444 : 0x221100;
+        const level = this.fence.level || 1;
+
+        // Visual upgrades per level
+        let color, height, metalness, roughness;
+        if (level >= 4) {
+            color = 0x666666; height = 4.0; metalness = 0.9; roughness = 0.2; // Steel fortress
+        } else if (level >= 3) {
+            color = 0x555555; height = 3.5; metalness = 0.7; roughness = 0.3; // Iron fence
+        } else if (level >= 2) {
+            color = 0x444444; height = 3.0; metalness = 0.4; roughness = 0.5; // Reinforced
+        } else {
+            color = 0x3a2510; height = 2.5; metalness = 0.0; roughness = 0.9; // Wooden
+        }
+
+        const postMat = new THREE.MeshStandardMaterial({ color, metalness, roughness });
+
         for (let i = 0; i < count; i++) {
             const a = (i / count) * Math.PI * 2;
-            const p = new THREE.Mesh(new THREE.BoxGeometry(0.3, 2.5, 0.3), new THREE.MeshStandardMaterial({ color }));
-            p.position.set(Math.cos(a) * rad, 1.25, Math.sin(a) * rad);
-            p.castShadow = true; this.fence.mesh.add(p);
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.3, height, 0.3), postMat);
+            p.position.set(Math.cos(a) * rad, height / 2, Math.sin(a) * rad);
+            p.castShadow = true;
+            this.fence.mesh.add(p);
         }
+
+        // Add horizontal connecting bars at level 2+
+        if (level >= 2) {
+            const barMat = new THREE.MeshStandardMaterial({ color, metalness: metalness + 0.1, roughness });
+            for (let i = 0; i < count; i++) {
+                const a1 = (i / count) * Math.PI * 2;
+                const a2 = ((i + 1) / count) * Math.PI * 2;
+                const midA = (a1 + a2) / 2;
+                const barLen = 2 * rad * Math.sin(Math.PI / count);
+
+                // Top bar
+                const bar = new THREE.Mesh(new THREE.BoxGeometry(barLen, 0.1, 0.1), barMat);
+                bar.position.set(Math.cos(midA) * rad, height * 0.85, Math.sin(midA) * rad);
+                bar.rotation.y = -midA + Math.PI / 2;
+                this.fence.mesh.add(bar);
+
+                // Mid bar
+                const bar2 = new THREE.Mesh(new THREE.BoxGeometry(barLen, 0.1, 0.1), barMat);
+                bar2.position.set(Math.cos(midA) * rad, height * 0.45, Math.sin(midA) * rad);
+                bar2.rotation.y = -midA + Math.PI / 2;
+                this.fence.mesh.add(bar2);
+            }
+        }
+
+        // Barbed wire effect at level 4+
+        if (level >= 4) {
+            const wireMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9, roughness: 0.1 });
+            for (let i = 0; i < count; i++) {
+                const a = (i / count) * Math.PI * 2;
+                const wire = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.03, 4, 6), wireMat);
+                wire.position.set(Math.cos(a) * rad, height + 0.2, Math.sin(a) * rad);
+                wire.rotation.x = Math.PI / 2;
+                this.fence.mesh.add(wire);
+            }
+        }
+
         this.scene.add(this.fence.mesh);
     }
 
