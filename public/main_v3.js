@@ -1056,7 +1056,8 @@ class Game {
         }
 
         this.zombieManager.update(d, this.player.group, this.house, this.fence,
-            (t, a) => this.takeDamage(t, a),
+            (t, a) => this.damage(t, a),
+
             () => { },
             (type, amt) => {
                 this.player.collectLoot(type, amt);
