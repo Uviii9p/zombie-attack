@@ -223,11 +223,9 @@ export class Zombie {
         let stopDist = 5.2; // House buffer
 
         // GATE PATHING LOGIC
-        // Rad 13 is the fence. If outside and gate is open, walk to gate pos first.
-        const gateAngle = Math.PI / 2; // South
-        const gateRad = 13.5;
-        const gatePos = new THREE.Vector3(Math.cos(gateAngle) * gateRad, 0, Math.sin(gateAngle) * gateRad);
-        const gateIsOpen = window.isGateOpen; // We'll add this global/property
+        // Gate is now at (0, 0, 13) on the south side (straight, not curved)
+        const gatePos = new THREE.Vector3(0, 0, 13.5);
+        const gateIsOpen = window.isGateOpen;
 
         if (fence.health > 0 && distToHouse < 18) {
             // If inside the fence area

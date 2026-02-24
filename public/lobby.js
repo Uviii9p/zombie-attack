@@ -29,6 +29,12 @@
     const chatInput = document.getElementById('chat-input');
     const chatSendBtn = document.getElementById('chat-send-btn');
 
+    // Rejoin Popup Elements
+    const rejoinPopup = document.getElementById('rejoin-popup');
+    const rejoinRoomCode = document.getElementById('rejoin-room-code');
+    const rejoinConfirmBtn = document.getElementById('rejoin-confirm-btn');
+    const rejoinCancelBtn = document.getElementById('rejoin-cancel-btn');
+
     // Avatar selection
     document.querySelectorAll('.avatar-option').forEach(opt => {
         opt.addEventListener('click', () => {
@@ -255,28 +261,47 @@
         });
     }
 
-    // Auto-rejoin logic after a small delay to ensure auth.js finishes
-    setTimeout(() => {
-        const lastRoom = localStorage.getItem('ds_last_room');
-        const username = localStorage.getItem('ds_username');
-        if (lastRoom && username) {
-            console.log('Attempting auto-rejoin to:', lastRoom);
-            menuScreen.classList.add('hidden');
-            lobbyScreen.classList.remove('hidden');
-            connectSocket();
-            // Wait for connection
-            const checkConn = setInterval(() => {
-                if (socket && socket.connected) {
-                    clearInterval(checkConn);
-                    socket.emit('join-room', {
-                        roomCode: lastRoom,
-                        playerName: username,
-                        avatar: selectedAvatar
-                    });
-                }
-            }, 500);
-        }
-    }, 1000);
+    // Rejoin Logic
+    if (rejoinConfirmBtn) {
+        rejoinConfirmBtn.addEventListener('click', () => {
+            const lastRoom = localStorage.getItem('ds_last_room');
+            const username = localStorage.getItem('ds_username');
+            if (lastRoom && username) {
+                console.log('Rejoining to:', lastRoom);
+                rejoinPopup.classList.add('hidden');
+                menuScreen.classList.add('hidden');
+                lobbyScreen.classList.remove('hidden');
+                lobbyEntry.classList.remove('hidden');
+                connectSocket();
+                // Wait for connection
+                const checkConn = setInterval(() => {
+                    if (socket && socket.connected) {
+                        clearInterval(checkConn);
+                        socket.emit('join-room', {
+                            roomCode: lastRoom,
+                            playerName: username,
+                            avatar: selectedAvatar
+                        });
+                    }
+                }, 500);
+            }
+        });
+    }
+
+    if (rejoinCancelBtn) {
+        rejoinCancelBtn.addEventListener('click', () => {
+            localStorage.removeItem('ds_last_room');
+            rejoinPopup.classList.add('hidden');
+        });
+    }
+
+    // Check for rejoin session on init
+    const lastRoom = localStorage.getItem('ds_last_room');
+    const username = localStorage.getItem('ds_username');
+    if (lastRoom && username && rejoinPopup && rejoinRoomCode) {
+        rejoinRoomCode.textContent = lastRoom;
+        rejoinPopup.classList.remove('hidden');
+    }
 
     function renderPlayers(data) {
         playersGrid.innerHTML = '';
