@@ -520,111 +520,225 @@ class Game {
     createFence() {
         if (this.fence.mesh) this.scene.remove(this.fence.mesh);
         this.fence.mesh = new THREE.Group();
-        this.fenceColliders = []; // Collision array for fence
-        const rad = 13, count = 32;
+        this.fenceColliders = [];
+        const rad = 13, count = 40; // More posts = tighter fence
         const level = this.fence.level || 1;
 
-        // Gate opening: skip posts near angle ~PI/2 (south side, z positive)
-        const gateAngle = Math.PI / 2; // South
-        const gateWidth = 0.2; // ~0.2 radians gap = ~2.5 unit gap at radius 13
+        // Gate opening on the south side (facing house door)
+        const gateAngle = Math.PI / 2;
+        const gateWidth = 0.18;
 
         // Visual upgrades per level
         let color, height, metalness, roughness;
-        if (level >= 4) {
-            color = 0x666666; height = 4.0; metalness = 0.9; roughness = 0.2;
-        } else if (level >= 3) {
-            color = 0x555555; height = 3.5; metalness = 0.7; roughness = 0.3;
-        } else if (level >= 2) {
-            color = 0x444444; height = 3.0; metalness = 0.4; roughness = 0.5;
-        } else {
-            color = 0x3a2510; height = 2.5; metalness = 0.0; roughness = 0.9;
-        }
+        if (level >= 4) { color = 0x666666; height = 4.0; metalness = 0.9; roughness = 0.2; }
+        else if (level >= 3) { color = 0x555555; height = 3.5; metalness = 0.7; roughness = 0.3; }
+        else if (level >= 2) { color = 0x444444; height = 3.0; metalness = 0.4; roughness = 0.5; }
+        else { color = 0x3a2510; height = 2.5; metalness = 0.0; roughness = 0.9; }
 
         const postMat = new THREE.MeshStandardMaterial({ color, metalness, roughness });
+        const wireMat = new THREE.MeshStandardMaterial({
+            color: 0x888888, metalness: 0.7, roughness: 0.3,
+            transparent: true, opacity: 0.7, side: THREE.DoubleSide
+        });
 
+        // Helper to check if angle is in the gate gap
+        const isGateArea = (angle) => {
+            let diff = Math.abs(angle - gateAngle);
+            if (diff > Math.PI) diff = Math.PI * 2 - diff;
+            return diff < gateWidth;
+        };
+
+        // ===== FENCE POSTS + WIRE PANELS =====
         for (let i = 0; i < count; i++) {
             const a = (i / count) * Math.PI * 2;
-            // Skip posts in the gate area
-            const angleDiff = Math.abs(a - gateAngle);
-            if (angleDiff < gateWidth || angleDiff > (Math.PI * 2 - gateWidth)) continue;
+            if (isGateArea(a)) continue;
 
-            const p = new THREE.Mesh(new THREE.BoxGeometry(0.4, height, 0.4), postMat);
+            // Post
+            const p = new THREE.Mesh(new THREE.BoxGeometry(0.25, height, 0.25), postMat);
             p.position.set(Math.cos(a) * rad, height / 2, Math.sin(a) * rad);
             p.castShadow = true;
             p.userData.type = 'wall';
             this.fence.mesh.add(p);
             this.fenceColliders.push(p);
-        }
 
-        // Gate frame (two thick posts on either side of the opening)
-        const gateMat = new THREE.MeshStandardMaterial({ color: 0x8B4513, metalness: 0.3, roughness: 0.7 });
-        const gateA1 = gateAngle - gateWidth;
-        const gateA2 = gateAngle + gateWidth;
-        const gatePost1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, height + 0.5, 0.5), gateMat);
-        gatePost1.position.set(Math.cos(gateA1) * rad, (height + 0.5) / 2, Math.sin(gateA1) * rad);
-        gatePost1.castShadow = true;
-        gatePost1.userData.type = 'wall';
-        this.fence.mesh.add(gatePost1);
-        this.fenceColliders.push(gatePost1);
+            // Wire panel between this post and the next
+            const nextA = ((i + 1) / count) * Math.PI * 2;
+            if (isGateArea(nextA)) continue;
 
-        const gatePost2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, height + 0.5, 0.5), gateMat);
-        gatePost2.position.set(Math.cos(gateA2) * rad, (height + 0.5) / 2, Math.sin(gateA2) * rad);
-        gatePost2.castShadow = true;
-        gatePost2.userData.type = 'wall';
-        this.fence.mesh.add(gatePost2);
-        this.fenceColliders.push(gatePost2);
+            const x1 = Math.cos(a) * rad, z1 = Math.sin(a) * rad;
+            const x2 = Math.cos(nextA) * rad, z2 = Math.sin(nextA) * rad;
+            const panelLen = Math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2);
+            const midX = (x1 + x2) / 2, midZ = (z1 + z2) / 2;
+            const panelAngle = Math.atan2(z2 - z1, x2 - x1);
 
-        // Gate top beam
-        const beamLen = Math.sqrt(
-            Math.pow(Math.cos(gateA2) * rad - Math.cos(gateA1) * rad, 2) +
-            Math.pow(Math.sin(gateA2) * rad - Math.sin(gateA1) * rad, 2)
-        );
-        const beamMidA = gateAngle;
-        const gateBeam = new THREE.Mesh(new THREE.BoxGeometry(beamLen, 0.3, 0.3), gateMat);
-        gateBeam.position.set(Math.cos(beamMidA) * rad, height + 0.2, Math.sin(beamMidA) * rad);
-        gateBeam.rotation.y = -(beamMidA) + Math.PI / 2;
-        this.fence.mesh.add(gateBeam);
+            // Solid collision wall (invisible but blocks player)
+            const wallPanel = new THREE.Mesh(
+                new THREE.BoxGeometry(panelLen, height, 0.3),
+                new THREE.MeshStandardMaterial({ visible: false })
+            );
+            wallPanel.position.set(midX, height / 2, midZ);
+            wallPanel.rotation.y = -panelAngle;
+            wallPanel.userData.type = 'wall';
+            this.fence.mesh.add(wallPanel);
+            this.fenceColliders.push(wallPanel);
 
-        // Horizontal connecting panels between posts (solid wall sections)
-        if (level >= 2) {
-            const barMat = new THREE.MeshStandardMaterial({ color, metalness: metalness + 0.1, roughness });
-            for (let i = 0; i < count; i++) {
-                const a1 = (i / count) * Math.PI * 2;
-                const a2 = ((i + 1) / count) * Math.PI * 2;
-                // Skip gate area
-                const midA = (a1 + a2) / 2;
-                const angleDiff = Math.abs(midA - gateAngle);
-                if (angleDiff < gateWidth + 0.1 || angleDiff > (Math.PI * 2 - gateWidth - 0.1)) continue;
-
-                const barLen = 2 * rad * Math.sin(Math.PI / count);
-
-                const bar = new THREE.Mesh(new THREE.BoxGeometry(barLen, 0.1, 0.1), barMat);
-                bar.position.set(Math.cos(midA) * rad, height * 0.85, Math.sin(midA) * rad);
-                bar.rotation.y = -midA + Math.PI / 2;
-                this.fence.mesh.add(bar);
-
-                const bar2 = new THREE.Mesh(new THREE.BoxGeometry(barLen, 0.1, 0.1), barMat);
-                bar2.position.set(Math.cos(midA) * rad, height * 0.45, Math.sin(midA) * rad);
-                bar2.rotation.y = -midA + Math.PI / 2;
-                this.fence.mesh.add(bar2);
-            }
-        }
-
-        // Barbed wire at level 4+
-        if (level >= 4) {
-            const wireMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9, roughness: 0.1 });
-            for (let i = 0; i < count; i++) {
-                const a = (i / count) * Math.PI * 2;
-                const angleDiff = Math.abs(a - gateAngle);
-                if (angleDiff < gateWidth || angleDiff > (Math.PI * 2 - gateWidth)) continue;
-                const wire = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.03, 4, 6), wireMat);
-                wire.position.set(Math.cos(a) * rad, height + 0.2, Math.sin(a) * rad);
-                wire.rotation.x = Math.PI / 2;
+            // Visible wire mesh (3 horizontal wires + diagonal cross)
+            for (let h = 0; h < 4; h++) {
+                const wireY = (h + 1) * (height / 5);
+                const wire = new THREE.Mesh(
+                    new THREE.BoxGeometry(panelLen, 0.03, 0.03), wireMat
+                );
+                wire.position.set(midX, wireY, midZ);
+                wire.rotation.y = -panelAngle;
                 this.fence.mesh.add(wire);
             }
+
+            // Cross-wire (X pattern) for chain-link look
+            const crossGeo = new THREE.BoxGeometry(Math.sqrt(panelLen ** 2 + (height * 0.7) ** 2), 0.02, 0.02);
+            const cross1 = new THREE.Mesh(crossGeo, wireMat);
+            cross1.position.set(midX, height * 0.5, midZ);
+            cross1.rotation.y = -panelAngle;
+            cross1.rotation.z = Math.atan2(height * 0.7, panelLen);
+            this.fence.mesh.add(cross1);
+
+            const cross2 = new THREE.Mesh(crossGeo, wireMat);
+            cross2.position.set(midX, height * 0.5, midZ);
+            cross2.rotation.y = -panelAngle;
+            cross2.rotation.z = -Math.atan2(height * 0.7, panelLen);
+            this.fence.mesh.add(cross2);
+
+            // Top rail
+            const topRail = new THREE.Mesh(
+                new THREE.BoxGeometry(panelLen, 0.08, 0.08), postMat
+            );
+            topRail.position.set(midX, height, midZ);
+            topRail.rotation.y = -panelAngle;
+            this.fence.mesh.add(topRail);
+        }
+
+        // ===== GATE FRAME =====
+        const gateMat = new THREE.MeshStandardMaterial({ color: 0x5C4033, metalness: 0.4, roughness: 0.6 });
+        const gateA1 = gateAngle - gateWidth;
+        const gateA2 = gateAngle + gateWidth;
+        const gp1x = Math.cos(gateA1) * rad, gp1z = Math.sin(gateA1) * rad;
+        const gp2x = Math.cos(gateA2) * rad, gp2z = Math.sin(gateA2) * rad;
+
+        // Gate frame posts (thick, taller)
+        const framePost1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, height + 0.8, 0.5), gateMat);
+        framePost1.position.set(gp1x, (height + 0.8) / 2, gp1z);
+        framePost1.castShadow = true;
+        framePost1.userData.type = 'wall';
+        this.fence.mesh.add(framePost1);
+        this.fenceColliders.push(framePost1);
+
+        const framePost2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, height + 0.8, 0.5), gateMat);
+        framePost2.position.set(gp2x, (height + 0.8) / 2, gp2z);
+        framePost2.castShadow = true;
+        framePost2.userData.type = 'wall';
+        this.fence.mesh.add(framePost2);
+        this.fenceColliders.push(framePost2);
+
+        // Gate top beam
+        const beamLen = Math.sqrt((gp2x - gp1x) ** 2 + (gp2z - gp1z) ** 2);
+        const beamAngle = Math.atan2(gp2z - gp1z, gp2x - gp1x);
+        const gateBeam = new THREE.Mesh(new THREE.BoxGeometry(beamLen + 0.5, 0.4, 0.4), gateMat);
+        gateBeam.position.set((gp1x + gp2x) / 2, height + 0.6, (gp1z + gp2z) / 2);
+        gateBeam.rotation.y = -beamAngle;
+        gateBeam.castShadow = true;
+        this.fence.mesh.add(gateBeam);
+
+        // "GATE" sign
+        const signMat = new THREE.MeshStandardMaterial({ color: 0xcc3333, emissive: 0x330000, emissiveIntensity: 0.3 });
+        const sign = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.4, 0.1), signMat);
+        sign.position.set((gp1x + gp2x) / 2, height + 0.2, (gp1z + gp2z) / 2 + 0.3);
+        this.fence.mesh.add(sign);
+
+        // ===== INTERACTIVE DOOR =====
+        const doorGroup = new THREE.Group();
+        // Door is a wooden panel that swings open
+        const doorWidth = beamLen - 0.5;
+        const doorHeight = height - 0.3;
+        const doorMat = new THREE.MeshStandardMaterial({ color: 0x6B4226, roughness: 0.8, metalness: 0.1 });
+
+        // Main door panel
+        const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(doorWidth, doorHeight, 0.15), doorMat);
+        doorPanel.position.x = doorWidth / 2; // Offset so it pivots from the left edge
+        doorPanel.castShadow = true;
+        doorGroup.add(doorPanel);
+
+        // Door handle
+        const handleMat = new THREE.MeshStandardMaterial({ color: 0xAA8844, metalness: 0.8, roughness: 0.2 });
+        const handle = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.3, 0.15), handleMat);
+        handle.position.set(doorWidth * 0.8, 0, 0.12);
+        doorGroup.add(handle);
+
+        // Metal reinforcement strips on door
+        const stripMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.9, roughness: 0.2 });
+        for (let s = 0; s < 3; s++) {
+            const strip = new THREE.Mesh(new THREE.BoxGeometry(doorWidth, 0.06, 0.17), stripMat);
+            strip.position.set(doorWidth / 2, -doorHeight * 0.3 + s * (doorHeight * 0.3), 0);
+            doorGroup.add(strip);
+        }
+
+        // Door collision mesh (updated when door opens/closes)
+        this.gateDoorCollider = new THREE.Mesh(
+            new THREE.BoxGeometry(doorWidth, doorHeight, 0.4),
+            new THREE.MeshStandardMaterial({ visible: false })
+        );
+        this.gateDoorCollider.position.x = doorWidth / 2;
+        this.gateDoorCollider.userData.type = 'wall';
+        doorGroup.add(this.gateDoorCollider);
+
+        // Position the door group at the hinge (left gate post)
+        doorGroup.position.set(gp1x, doorHeight / 2 + 0.15, gp1z);
+        doorGroup.rotation.y = -(gateAngle) + Math.PI / 2;
+
+        this.gateDoor = doorGroup;
+        this.gateDoorOpen = false;
+        this.gateDoorAngle = 0;
+        this.gateDoorTargetAngle = 0;
+        this.fence.mesh.add(doorGroup);
+        this.fenceColliders.push(this.gateDoorCollider);
+
+        // Barbed wire on top at all levels
+        const barbedMat = new THREE.MeshStandardMaterial({ color: 0x999999, metalness: 0.8, roughness: 0.15 });
+        for (let i = 0; i < count; i++) {
+            const a = (i / count) * Math.PI * 2;
+            if (isGateArea(a)) continue;
+            // Coiled wire
+            const coil = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.025, 4, 8), barbedMat);
+            coil.position.set(Math.cos(a) * rad, height + 0.15, Math.sin(a) * rad);
+            coil.rotation.x = Math.PI / 2;
+            coil.rotation.z = a;
+            this.fence.mesh.add(coil);
         }
 
         this.scene.add(this.fence.mesh);
+    }
+
+    toggleGateDoor() {
+        if (!this.gateDoor) return;
+        // Check if player is close enough to the gate
+        const gatePos = new THREE.Vector3();
+        this.gateDoor.getWorldPosition(gatePos);
+        const dist = this.player.group.position.distanceTo(gatePos);
+        if (dist > 8) return; // Too far away
+
+        this.gateDoorOpen = !this.gateDoorOpen;
+        this.gateDoorTargetAngle = this.gateDoorOpen ? -Math.PI / 2 : 0;
+        audioSystem.playClick();
+
+        // Update collision
+        if (this.gateDoorOpen) {
+            // Remove door collider from fence colliders when open
+            const idx = this.fenceColliders.indexOf(this.gateDoorCollider);
+            if (idx !== -1) this.fenceColliders.splice(idx, 1);
+        } else {
+            // Add it back when closed
+            if (!this.fenceColliders.includes(this.gateDoorCollider)) {
+                this.fenceColliders.push(this.gateDoorCollider);
+            }
+        }
     }
 
     createUpgradeSparkles(pos, color) {
@@ -804,6 +918,7 @@ class Game {
             }
         }
         if (e.code === 'KeyF') { audioSystem.playClick(); this.player.toggleFlashlight(); }
+        if (e.code === 'KeyX') { this.toggleGateDoor(); }
     }
 
     triggerReload() {
@@ -914,6 +1029,15 @@ class Game {
         this.vehicle.update(d, this.player);
         this.vehicle.checkCollisions(this.zombieManager.zombies, this.zombieManager.bloodParticles);
         this.weaponSystem.update(d);
+
+        // Animate gate door
+        if (this.gateDoor && this.gateDoorAngle !== this.gateDoorTargetAngle) {
+            this.gateDoorAngle += (this.gateDoorTargetAngle - this.gateDoorAngle) * 0.1;
+            if (Math.abs(this.gateDoorAngle - this.gateDoorTargetAngle) < 0.01) {
+                this.gateDoorAngle = this.gateDoorTargetAngle;
+            }
+            this.gateDoor.rotation.y = (-(Math.PI / 2) + Math.PI / 2) + this.gateDoorAngle;
+        }
 
         const houseParts = (this.houseHealth > 0) ? (this.houseColliders || []) : [];
         const fenceParts = (this.fence.health > 0 && this.fenceColliders) ? this.fenceColliders : [];
