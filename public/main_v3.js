@@ -33,6 +33,8 @@ class Game {
         this.isSettingsOpen = false;
         this.soldiers = [];
         this.sparkles = [];
+        this.isGateOpen = false;
+        window.isGateOpen = false;
 
         this.init().catch(e => console.error("Game Init Error:", e));
     }
@@ -725,6 +727,8 @@ class Game {
         if (dist > 8) return; // Too far away
 
         this.gateDoorOpen = !this.gateDoorOpen;
+        this.isGateOpen = this.gateDoorOpen;
+        window.isGateOpen = this.gateDoorOpen;
         this.gateDoorTargetAngle = this.gateDoorOpen ? -Math.PI / 2 : 0;
         audioSystem.playClick();
 
@@ -1051,13 +1055,18 @@ class Game {
             this.camera.lookAt(carPos);
         }
 
-        this.zombieManager.update(d, this.player.group, this.house, this.fence, (t, a) => this.damage(t, a), () => { }, (type, amt) => {
-            this.player.collectLoot(type, amt);
-            this.ui.updateCoins(this.player.coins);
-            const cur = this.weaponSystem.currentWeaponKey;
-            this.ui.updateAmmo(this.weaponSystem.currentWeapon.ammo, this.player.ammoReserves[cur]);
-            if (this.isBackpackOpen) this.ui.renderInventory(this.player);
-        });
+        this.zombieManager.update(d, this.player.group, this.house, this.fence,
+            (t, a) => this.takeDamage(t, a),
+            () => { },
+            (type, amt) => {
+                this.player.collectLoot(type, amt);
+                this.ui.updateCoins(this.player.coins);
+                const cur = this.weaponSystem.currentWeaponKey;
+                this.ui.updateAmmo(this.weaponSystem.currentWeapon.ammo, this.player.ammoReserves[cur]);
+                if (this.isBackpackOpen) this.ui.renderInventory(this.player);
+            },
+            [...houseParts, ...fenceParts]
+        );
 
         // Update Soldiers
         this.soldiers = this.soldiers.filter(s => !s.isDead);

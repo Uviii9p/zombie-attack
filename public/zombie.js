@@ -182,7 +182,7 @@ export class Zombie {
         audioSystem.playZombieHit();
     }
 
-    update(delta, player, house, fence, onAttack) {
+    update(delta, player, house, fence, onAttack, walls = []) {
         if (this.isDead) {
             if (this.flingVelocity) {
                 // Physics flying animation for roadkill
@@ -222,36 +222,86 @@ export class Zombie {
         let targetType = 'house';
         let stopDist = 5.2; // House buffer
 
-        if (fence.health > 0 && distToHouse < 15) {
-            targetType = 'fence';
-            stopDist = 14.0; // Fence buffer (rad 13 + small buffer)
+        // GATE PATHING LOGIC
+        // Rad 13 is the fence. If outside and gate is open, walk to gate pos first.
+        const gateAngle = Math.PI / 2; // South
+        const gateRad = 13.5;
+        const gatePos = new THREE.Vector3(Math.cos(gateAngle) * gateRad, 0, Math.sin(gateAngle) * gateRad);
+        const gateIsOpen = window.isGateOpen; // We'll add this global/property
+
+        if (fence.health > 0 && distToHouse < 18) {
+            // If inside the fence area
+            if (distToHouse > 12.5) {
+                // Near the fence line
+                if (gateIsOpen && pos.distanceTo(gatePos) < 5) {
+                    // If near the open gate, path to player/house normally
+                    targetType = (distToPlayer < 20) ? 'player' : 'house';
+                    stopDist = (targetType === 'player') ? 1.8 : 5.2;
+                } else {
+                    targetType = 'fence';
+                    stopDist = 13.5;
+                }
+            } else {
+                // Safely inside
+                targetType = (distToPlayer < 20) ? 'player' : 'house';
+                stopDist = (targetType === 'player') ? 1.8 : 5.2;
+            }
         } else if (distToPlayer < 25) {
             targetType = 'player';
-            stopDist = 1.8; // Player buffer
+            stopDist = 1.8;
         }
 
-        const targetPos = targetType === 'player' ? player.position.clone() : new THREE.Vector3(0, 0, 0);
-        const distToTarget = targetType === 'player' ? distToPlayer : distToHouse;
+        // Smarter pathing: If targeting house but fence is in the way and gate is open, head to gate
+        if (targetType === 'house' && gateIsOpen && distToHouse > 14) {
+            const distToGate = pos.distanceTo(gatePos);
+            if (distToGate < 20) {
+                // Head toward gate instead of blindly at center
+                targetType = 'gate';
+                stopDist = 0.5;
+            }
+        }
+
+        const actualTargetPos = (targetType === 'player') ? player.position.clone() :
+            (targetType === 'gate') ? gatePos : new THREE.Vector3(0, 0, 0);
+
+        const distToTarget = targetType === 'player' ? distToPlayer :
+            targetType === 'gate' ? pos.distanceTo(gatePos) : distToHouse;
 
         if (distToTarget > stopDist) {
             // Movement logic
-            const dir = new THREE.Vector3().subVectors(targetPos, pos).normalize();
-            dir.y = 0; // Keep movement on surface
+            const dir = new THREE.Vector3().subVectors(actualTargetPos, pos).normalize();
+            dir.y = 0;
 
-            // Frame-rate independent speed
             const moveAmt = this.speed * delta * 60;
-            pos.add(dir.multiplyScalar(moveAmt));
+            const nextPos = pos.clone().add(dir.clone().multiplyScalar(moveAmt));
 
-            this.mesh.lookAt(targetPos.x, 0, targetPos.z);
+            // Basic Wall Collision
+            let hit = false;
+            if (walls.length > 0) {
+                const zBox = new THREE.Box3().setFromCenterAndSize(
+                    nextPos.clone().add(new THREE.Vector3(0, 0.8, 0)),
+                    new THREE.Vector3(0.6, 1.6, 0.6)
+                );
+                for (let wall of walls) {
+                    if (wall.userData.type === 'floor') continue;
+                    const wallBox = new THREE.Box3().setFromObject(wall);
+                    if (zBox.intersectsBox(wallBox)) {
+                        hit = true;
+                        break;
+                    }
+                }
+            }
 
-            // Shambling walking animation
+            if (!hit) {
+                pos.copy(nextPos);
+            }
+
+            this.mesh.lookAt(actualTargetPos.x, 0, actualTargetPos.z);
+
+            // Shambling animation
             const time = Date.now() * 0.005;
-            this.mesh.rotation.z = Math.sin(time * 1.5) * 0.05; // slight swaying
-
-            // Random groans while shambling
+            this.mesh.rotation.z = Math.sin(time * 1.5) * 0.05;
             if (Math.random() < 0.005) audioSystem.playZombieGroan();
-
-            // Uncoordinated zombie leg dragging
             const legSwing = Math.sin(time * 2.5) * 0.6;
             if (this.leftLeg && this.rightLeg) {
                 this.leftLeg.rotation.x = -legSwing;
@@ -259,19 +309,21 @@ export class Zombie {
             }
         } else {
             // Attack logic
+            // If we were just targeting the "gate" position, don't attack the gate position itself
+            if (targetType === 'gate') {
+                // Transition to house/player
+                return;
+            }
+
             const now = performance.now() / 1000;
             if (now - this.lastAttack > this.attackInterval) {
-                onAttack(targetType, this.damage);
+                onAttack(targetType === 'fence' ? 'fence' : (targetType === 'house' ? 'house' : 'player'), this.damage);
                 this.lastAttack = now;
-
-                // Pulsing red effect when attacking
                 this.mesh.traverse(o => { if (o.material) o.material.emissive?.set(0x550000); });
                 setTimeout(() => { if (this.mesh) this.mesh.traverse(o => { if (o.material) o.material.emissive?.set(0x000000); }); }, 300);
             }
-
-            // Subtle rotation even while attacking
-            this.mesh.lookAt(targetPos.x, 0, targetPos.z);
-            this.mesh.position.y = 0; // Flat on ground during attack
+            this.mesh.lookAt(actualTargetPos.x, 0, actualTargetPos.z);
+            this.mesh.position.y = 0;
         }
     }
 
@@ -334,7 +386,7 @@ export class ZombieManager {
         this.intermissionTimer = 0;
     }
 
-    update(delta, player, house, fence, onAttack, onKill, onLoot) {
+    update(delta, player, house, fence, onAttack, onKill, onLoot, walls = []) {
         if (!this.firstWaveAnnounced) {
             this.firstWaveAnnounced = true;
             window.dispatchEvent(new CustomEvent('wave-start', { detail: this.currentWave }));
@@ -365,7 +417,7 @@ export class ZombieManager {
         }
 
         this.zombies.forEach(z => {
-            z.update(delta, player, house, fence, onAttack);
+            z.update(delta, player, house, fence, onAttack, walls);
             if (z.isDead && !z.dropProcessed && !z.mesh.visible) {
                 this.spawnLoot(z.deathPosition.x, z.deathPosition.z);
                 z.dropProcessed = true;
