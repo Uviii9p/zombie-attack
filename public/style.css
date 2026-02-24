@@ -463,6 +463,8 @@ p.subtitle {
     border-radius: 20px;
     width: 90%;
     max-width: 900px;
+    max-height: 85vh;
+    overflow-y: auto;
     border: 1px solid var(--panel-border);
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.6);
 }

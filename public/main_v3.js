@@ -73,6 +73,7 @@ class Game {
         this.scene.add(ground);
 
         this.createHouse();
+        this.createWatchtowers();
         this.createFence();
         this.createEnvironment();
         this.createWeather();
@@ -96,7 +97,15 @@ class Game {
         this.ui.restartBtn.onclick = () => { audioSystem.playClick(); location.reload(); };
         this.ui.closeShopBtn.onclick = () => { audioSystem.playClick(); this.toggleShop(false); };
         if (this.ui.closeBackpackBtn) this.ui.closeBackpackBtn.onclick = () => { audioSystem.playClick(); this.toggleBackpack(false); };
-        this.ui.buyButtons.forEach(btn => btn.onclick = (e) => this.buy(e));
+
+        // Shop event delegation
+        if (this.ui.shopScreen) {
+            this.ui.shopScreen.addEventListener('click', (e) => {
+                const btn = e.target.closest('.buy-btn');
+                if (btn) this.buy({ target: btn });
+            });
+        }
+
         if (this.ui.hudShopBtn) this.ui.hudShopBtn.onclick = () => { audioSystem.playClick(); this.toggleShop(!this.isShopOpen); };
 
         // Admin Panel Activation — Click title 5x on menu OR press ` key 5x rapidly
@@ -674,6 +683,70 @@ class Game {
         this.scene.add(this.house);
     }
 
+    createWatchtowers() {
+        this.watchtowers = [];
+        this.watchtowerPositions = [];
+        // Concrete pillar base
+        const towerGeo = new THREE.CylinderGeometry(1.5, 2.0, 5, 8);
+        const towerMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.9 });
+        // Wooden platform
+        const platformGeo = new THREE.BoxGeometry(4, 0.4, 4);
+        const platformMat = new THREE.MeshStandardMaterial({ color: 0x3d2b1a, roughness: 1.0 });
+
+        // Positions: 4 corners outside the fence radius (fence radius is 13)
+        const offset = 16;
+        const positions = [
+            { x: -offset, z: -offset },
+            { x: offset, z: -offset },
+            { x: -offset, z: offset },
+            { x: offset, z: offset }
+        ];
+
+        positions.forEach(pos => {
+            const tower = new THREE.Group();
+
+            // Base Pillar
+            const base = new THREE.Mesh(towerGeo, towerMat);
+            base.position.y = 2.5;
+            base.castShadow = true;
+            base.receiveShadow = true;
+            base.userData.type = 'wall';
+            tower.add(base);
+            this.houseColliders.push(base);
+
+            // Platform
+            const platform = new THREE.Mesh(platformGeo, platformMat);
+            platform.position.y = 5.2;
+            platform.castShadow = true;
+            platform.receiveShadow = true;
+            platform.userData.type = 'floor';
+            tower.add(platform);
+            this.houseColliders.push(platform);
+
+            // Railings
+            const railGeoNS = new THREE.BoxGeometry(4, 1.2, 0.2);
+            const railGeoEW = new THREE.BoxGeometry(0.2, 1.2, 4);
+            const railMat = new THREE.MeshStandardMaterial({ color: 0x2a2218, roughness: 0.8 });
+
+            const r1 = new THREE.Mesh(railGeoNS, railMat); r1.position.set(0, 6, -1.9); tower.add(r1);
+            const r2 = new THREE.Mesh(railGeoNS, railMat); r2.position.set(0, 6, 1.9); tower.add(r2);
+            const r3 = new THREE.Mesh(railGeoEW, railMat); r3.position.set(-1.9, 6, 0); tower.add(r3);
+            const r4 = new THREE.Mesh(railGeoEW, railMat); r4.position.set(1.9, 6, 0); tower.add(r4);
+
+            // Allow collision with railings
+            r1.userData.type = 'wall'; r2.userData.type = 'wall';
+            r3.userData.type = 'wall'; r4.userData.type = 'wall';
+            this.houseColliders.push(r1, r2, r3, r4);
+
+            tower.position.set(pos.x, 0, pos.z);
+            this.scene.add(tower);
+            this.watchtowers.push(tower);
+
+            // Store safe spawn position for guards inside the tower
+            this.watchtowerPositions.push(new THREE.Vector3(pos.x, 5.4, pos.z));
+        });
+    }
+
     createFence() {
         if (this.fence.mesh) this.scene.remove(this.fence.mesh);
         this.fence.mesh = new THREE.Group();
@@ -1107,9 +1180,17 @@ class Game {
             } else if (type === 'npc') {
                 let guardType = 'ak47';
                 let pos;
+                // Helper to get next uncrowded watchtower
+                const getWatchtowerPos = () => {
+                    if (!this.watchtowerPositions || this.watchtowerPositions.length === 0) return this.player.group.position.clone().add(new THREE.Vector3(2, 0, 2));
+                    // Distribute them evenly
+                    let count = this.soldiers.filter(s => s.type !== 'sniper').length;
+                    return this.watchtowerPositions[count % this.watchtowerPositions.length].clone();
+                };
+
                 if (id === 'bodyguard_rpg' || id === 'bodyguard-rpg') {
                     guardType = 'rpg';
-                    pos = this.player.group.position.clone().add(new THREE.Vector3(3, 0, 3));
+                    pos = getWatchtowerPos();
                 } else if (id === 'bodyguard_sniper' || id === 'bodyguard-sniper') {
                     guardType = 'sniper';
                     // Sniper spawns on rooftop
@@ -1117,8 +1198,8 @@ class Game {
                     const rz = -3 + Math.random() * 6;
                     pos = new THREE.Vector3(rx, 8.5, rz);
                 } else {
-                    // Default AK47 guard
-                    pos = this.player.group.position.clone().add(new THREE.Vector3(2, 0, 2));
+                    // Default AK47 (Assault guard)
+                    pos = getWatchtowerPos();
                 }
                 const s = new Soldier(this.scene, pos, guardType);
                 this.soldiers.push(s);
