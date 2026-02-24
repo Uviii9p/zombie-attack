@@ -10,9 +10,9 @@ export class Soldier {
 
         // Stats per type
         const stats = {
-            ak47: { health: 250, fireRate: 0.18, damage: 22, range: 50, color: 0x4a5a3a, accent: 0x6b7b4a, name: 'ASSAULT' },
-            rpg: { health: 350, fireRate: 2.5, damage: 120, range: 35, color: 0x5a4a3a, accent: 0x8b6b4a, name: 'HEAVY' },
-            sniper: { health: 180, fireRate: 1.8, damage: 80, range: 60, color: 0x3a4a5a, accent: 0x4a6a8a, name: 'MARKSMAN' }
+            ak47: { health: 250, fireRate: 0.18, damage: 22, range: 15, color: 0x4a5a3a, accent: 0x6b7b4a, name: 'ASSAULT' },
+            rpg: { health: 350, fireRate: 2.5, damage: 120, range: 15, color: 0x5a4a3a, accent: 0x8b6b4a, name: 'HEAVY' },
+            sniper: { health: 180, fireRate: 1.8, damage: 80, range: 15, color: 0x3a4a5a, accent: 0x4a6a8a, name: 'MARKSMAN' }
         };
         const s = stats[type] || stats.ak47;
         this.health = s.health;
