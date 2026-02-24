@@ -644,6 +644,67 @@ class Game {
         this.fence.mesh.add(framePost2);
         this.fenceColliders.push(framePost2);
 
+        // ===== CONNECTOR PANELS: bridge fence curve to gate frame posts =====
+        // Find the nearest fence post to each gate post and fill the gap
+        const addConnector = (fromX, fromZ, toX, toZ) => {
+            const cLen = Math.sqrt((toX - fromX) ** 2 + (toZ - fromZ) ** 2);
+            if (cLen < 0.1) return; // Already touching
+            const cMidX = (fromX + toX) / 2, cMidZ = (fromZ + toZ) / 2;
+            const cAngle = Math.atan2(toZ - fromZ, toX - fromX);
+
+            // Collision wall
+            const cWall = new THREE.Mesh(
+                new THREE.BoxGeometry(cLen, height, 0.3),
+                new THREE.MeshStandardMaterial({ visible: false })
+            );
+            cWall.position.set(cMidX, height / 2, cMidZ);
+            cWall.rotation.y = -cAngle;
+            cWall.userData.type = 'wall';
+            this.fence.mesh.add(cWall);
+            this.fenceColliders.push(cWall);
+
+            // Visible wires
+            for (let h = 0; h < 4; h++) {
+                const wireY = (h + 1) * (height / 5);
+                const wire = new THREE.Mesh(new THREE.BoxGeometry(cLen, 0.03, 0.03), wireMat);
+                wire.position.set(cMidX, wireY, cMidZ);
+                wire.rotation.y = -cAngle;
+                this.fence.mesh.add(wire);
+            }
+
+            // Cross wires
+            const dLen = Math.sqrt(cLen ** 2 + (height * 0.7) ** 2);
+            const cGeo = new THREE.BoxGeometry(dLen, 0.02, 0.02);
+            const c1 = new THREE.Mesh(cGeo, wireMat);
+            c1.position.set(cMidX, height * 0.5, cMidZ);
+            c1.rotation.y = -cAngle;
+            c1.rotation.z = Math.atan2(height * 0.7, cLen);
+            this.fence.mesh.add(c1);
+            const c2 = new THREE.Mesh(cGeo, wireMat);
+            c2.position.set(cMidX, height * 0.5, cMidZ);
+            c2.rotation.y = -cAngle;
+            c2.rotation.z = -Math.atan2(height * 0.7, cLen);
+            this.fence.mesh.add(c2);
+
+            // Top rail
+            const cRail = new THREE.Mesh(new THREE.BoxGeometry(cLen, 0.08, 0.08), postMat);
+            cRail.position.set(cMidX, height, cMidZ);
+            cRail.rotation.y = -cAngle;
+            this.fence.mesh.add(cRail);
+        };
+
+        // Find nearest posts to each gate post
+        let nearLeft = null, nearRight = null;
+        let minDistL = Infinity, minDistR = Infinity;
+        for (const p of posts) {
+            const dL = Math.sqrt((p.x - gp1x) ** 2 + (p.z - gp1z) ** 2);
+            const dR = Math.sqrt((p.x - gp2x) ** 2 + (p.z - gp2z) ** 2);
+            if (dL < minDistL) { minDistL = dL; nearLeft = p; }
+            if (dR < minDistR) { minDistR = dR; nearRight = p; }
+        }
+        if (nearLeft) addConnector(nearLeft.x, nearLeft.z, gp1x, gp1z);
+        if (nearRight) addConnector(gp2x, gp2z, nearRight.x, nearRight.z);
+
         // Top beam connecting the two gate posts
         const gateBeam = new THREE.Mesh(new THREE.BoxGeometry(gateOpeningWidth + 0.5, 0.4, 0.4), gateMat);
         gateBeam.position.set(0, height + 0.8, rad);
