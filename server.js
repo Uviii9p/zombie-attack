@@ -285,6 +285,12 @@ io.on('connection', (socket) => {
         socket.to(currentRoom).emit('wave-start-sync', wave);
     });
 
+    socket.on('shop-upgrade-sync', (data) => {
+        if (!currentRoom) return;
+        // Broadcast 'lobby-shop-upgrade-sync' to other players in the room
+        socket.to(currentRoom).emit('lobby-shop-upgrade-sync', data);
+    });
+
     socket.on('leave-room', () => {
         leaveRoom(socket);
     });

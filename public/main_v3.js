@@ -166,6 +166,11 @@ class Game {
                 if (data && data.currentWave > 1) {
                     this.zombieManager.forceStartWave(data.currentWave);
                 }
+
+                // Listen for shop upgrade sync
+                window.lobbySocket.on('lobby-shop-upgrade-sync', (syncData) => {
+                    this.processRemoteUpgrade(syncData);
+                });
             }
             audioSystem.init();
             audioSystem.playClick();
@@ -1165,6 +1170,7 @@ class Game {
         const type = e.target.parentElement.dataset.type;
         if (this.player.coins >= cost) {
             let ok = false;
+            let syncData = null;
             if (type === 'weapon') {
                 if (this.weaponSystem.switchWeapon(id)) { ok = true; this.ui.updateWeapon(id); }
             } else if (id === 'armor') ok = this.player.upgradeArmor();
@@ -1173,10 +1179,12 @@ class Game {
                 this.createFence(); this.ui.updateFenceHealth(100);
                 this.createUpgradeSparkles(new THREE.Vector3(0, 2, 13), 0x00ffff);
                 ok = true;
+                syncData = { type: 'upgrade', id: 'fence' };
             } else if (id === 'house') {
                 this.houseHealth = this.maxHouseHealth; this.ui.updateHouseHealth(100);
                 this.createUpgradeSparkles(new THREE.Vector3(0, 5, 0), 0xffff00);
                 ok = true;
+                syncData = { type: 'upgrade', id: 'house' };
             } else if (type === 'npc') {
                 let guardType = 'ak47';
                 let pos;
@@ -1205,6 +1213,7 @@ class Game {
                 this.soldiers.push(s);
                 this.createUpgradeSparkles(pos, guardType === 'sniper' ? 0x3366ff : (guardType === 'rpg' ? 0xff6600 : 0x00ff00));
                 ok = true;
+                syncData = { type: 'npc', id, guardType, pos: { x: pos.x, y: pos.y, z: pos.z } };
             } else if (type === 'ammo') {
                 const ammoAmounts = { 'AK47': 30, 'Sniper': 10, 'RPG': 5 };
                 const amount = ammoAmounts[id] || 0;
@@ -1219,11 +1228,44 @@ class Game {
             if (ok) {
                 audioSystem.playBuy();
                 this.updateCoins(-cost);
+                if (syncData && window.lobbySocket && this.multiplayer && this.multiplayer.isActive) {
+                    window.lobbySocket.emit('shop-upgrade-sync', syncData);
+                }
             } else {
                 audioSystem.playError();
             }
         } else {
             audioSystem.playError();
+        }
+    }
+
+    processRemoteUpgrade(data) {
+        if (!data) return;
+        const { type, id } = data;
+
+        if (id === 'fence') {
+            this.fence.level++;
+            this.fence.health = this.fence.maxHealth = 300 + (this.fence.level * 200);
+            this.createFence();
+            this.ui.updateFenceHealth(100);
+            this.createUpgradeSparkles(new THREE.Vector3(0, 2, 13), 0x00ffff);
+            // Log remote fence upgrade
+            const fenceNames = ['reinforced', 'metal', 'electric'];
+            const fenceName = fenceNames[Math.min(this.fence.level - 1, 2)] || 'upgraded';
+            if (this.ui) this.ui.announceWave(`FENCE UPGRADED`, '#00ffff');
+        } else if (id === 'house') {
+            this.houseHealth = this.maxHouseHealth;
+            this.ui.updateHouseHealth(100);
+            this.createUpgradeSparkles(new THREE.Vector3(0, 5, 0), 0xffff00);
+            if (this.ui) this.ui.announceWave(`HOUSE REPAIRED`, '#ffff00');
+        } else if (type === 'npc') {
+            const { guardType, pos } = data;
+            if (!guardType || !pos) return;
+            const p = new THREE.Vector3(pos.x, pos.y, pos.z);
+            const s = new Soldier(this.scene, p, guardType);
+            this.soldiers.push(s);
+            this.createUpgradeSparkles(p, guardType === 'sniper' ? 0x3366ff : (guardType === 'rpg' ? 0xff6600 : 0x00ff00));
+            if (this.ui) this.ui.announceWave(`GUARD DEPLOYED`, '#00ff00');
         }
     }
 
