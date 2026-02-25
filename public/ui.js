@@ -51,6 +51,14 @@ export class GameUI {
         this.buyButtons = document.querySelectorAll('.buy-btn');
         this.hudShopBtn = document.getElementById('hud-shop-btn');
         this.hitmarker = document.getElementById('hitmarker');
+        this.mobileControls = document.getElementById('mobile-controls');
+        this.mobileMedkitCount = document.getElementById('mobile-medkit-count');
+        this.mobileShootCooldown = document.getElementById('mobile-shoot-cooldown');
+        this.rageBtn = document.getElementById('rage-btn');
+        this.mobileRageBtn = document.getElementById('mobile-rage-btn');
+        this.xpFill = document.getElementById('xp-fill');
+        this.xpLevel = document.getElementById('xp-level');
+        this.skillPoints = document.getElementById('skill-points');
         this._hitTimeout = null;
     }
 
@@ -66,6 +74,12 @@ export class GameUI {
         this._hitTimeout = setTimeout(() => {
             this.hitmarker.classList.add('hidden');
         }, 150);
+    }
+
+    setMobileMode(isMobile) {
+        if (this.mobileControls) this.mobileControls.classList.toggle('hidden', !isMobile);
+        if (this.crosshair) this.crosshair.classList.toggle('mobile-crosshair', isMobile);
+        if (this.hitmarker) this.hitmarker.classList.toggle('mobile-hitmarker', isMobile);
     }
 
     updatePlayerHealth(percent) {
@@ -105,12 +119,42 @@ export class GameUI {
 
     updateMedkits(count) {
         if (this.medkitCount) this.medkitCount.textContent = count;
+        if (this.mobileMedkitCount) this.mobileMedkitCount.textContent = count;
+    }
+
+    triggerShootCooldown(seconds) {
+        if (!this.mobileShootCooldown || !seconds || seconds <= 0) return;
+        this.mobileShootCooldown.style.transition = 'none';
+        this.mobileShootCooldown.style.transform = 'scaleY(1)';
+        this.mobileShootCooldown.offsetHeight;
+        this.mobileShootCooldown.style.transition = `transform ${seconds}s linear`;
+        this.mobileShootCooldown.style.transform = 'scaleY(0)';
+    }
+
+    updateXP(level, percent, points) {
+        if (this.xpFill) this.xpFill.style.width = `${percent}%`;
+        if (this.xpLevel) this.xpLevel.textContent = `LVL ${level}`;
+        if (this.skillPoints) this.skillPoints.textContent = `SP ${points}`;
+    }
+
+    updateRage(active, cooldown, duration) {
+        const label = active ? `RAGE ${duration.toFixed(1)}s` : (cooldown > 0 ? `RAGE ${cooldown.toFixed(0)}s` : 'RAGE [Q]');
+        if (this.rageBtn) {
+            this.rageBtn.textContent = label;
+            this.rageBtn.classList.toggle('active-rage', active);
+        }
+        if (this.mobileRageBtn) {
+            this.mobileRageBtn.textContent = active ? '🔥' : (cooldown > 0 ? '⏳' : '🔥');
+            this.mobileRageBtn.classList.toggle('active-rage', active);
+        }
     }
 
     toggleShop(show) {
         this.shopScreen.classList.toggle('hidden', !show);
         if (show) document.exitPointerLock();
-        else { const c = document.querySelector('canvas'); if (c) c.requestPointerLock(); }
+        else if (!document.body.classList.contains('mobile-mode')) {
+            const c = document.querySelector('canvas'); if (c) c.requestPointerLock();
+        }
     }
 
     toggleBackpack(show, player) {
@@ -119,7 +163,9 @@ export class GameUI {
             document.exitPointerLock();
             this.renderInventory(player);
         } else {
-            const c = document.querySelector('canvas'); if (c) c.requestPointerLock();
+            if (!document.body.classList.contains('mobile-mode')) {
+                const c = document.querySelector('canvas'); if (c) c.requestPointerLock();
+            }
         }
     }
 

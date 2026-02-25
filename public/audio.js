@@ -267,6 +267,45 @@ export class AudioSystem {
         this.playTone(1800, 'sine', 0.05, 0.15); // Very short high pitch click
     }
 
+    playUiHover() {
+        if (!this.isInitialized || this.muted) return;
+        this.playTone(1200, 'triangle', 0.03, 0.08);
+    }
+
+    playImpactVariation() {
+        if (!this.isInitialized || this.muted) return;
+        const f = 240 + Math.random() * 420;
+        this.playTone(f, 'square', 0.035, 0.12);
+    }
+
+    playBossRoar() {
+        if (!this.isInitialized || this.muted) return;
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(95, t);
+        osc.frequency.exponentialRampToValueAtTime(45, t + 1.2);
+        gain.gain.setValueAtTime(0.6, t);
+        gain.gain.exponentialRampToValueAtTime(0.01, t + 1.2);
+        osc.connect(gain);
+        gain.connect(this.masterVolume);
+        osc.start(t);
+        osc.stop(t + 1.2);
+    }
+
+    playWaveMusicIntensity(wave = 1, boss = false) {
+        if (!this.isInitialized || this.muted) return;
+        const base = boss ? 170 : Math.min(145, 90 + wave * 4);
+        this.playTone(base, boss ? 'sawtooth' : 'triangle', 0.18, boss ? 0.22 : 0.12);
+        this.playTone(base * 1.5, 'sine', 0.14, 0.08);
+    }
+
+    playHeartbeatLowHp() {
+        if (!this.isInitialized || this.muted) return;
+        this.playTone(72, 'sine', 0.08, 0.25);
+    }
+
     startEngineLoop() {
         if (!this.isInitialized) return;
         this.engineOsc = this.ctx.createOscillator();

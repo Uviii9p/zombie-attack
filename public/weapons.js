@@ -78,6 +78,7 @@ export class WeaponSystem {
         this.explosions = [];
         this.explosionGeo = new THREE.SphereGeometry(3, 16, 16);
         this.projectiles = [];
+        this.tracers = [];
     }
 
     update(delta, zombies, onHit, onHitAny) {
@@ -125,6 +126,18 @@ export class WeaponSystem {
                 if (p.mesh.geometry) p.mesh.geometry.dispose();
                 if (p.mesh.material) p.mesh.material.dispose();
                 this.projectiles.splice(i, 1);
+            }
+        }
+
+        for (let i = this.tracers.length - 1; i >= 0; i--) {
+            const t = this.tracers[i];
+            t.life -= delta * 5;
+            t.line.material.opacity = Math.max(0, t.life);
+            if (t.life <= 0) {
+                this.scene.remove(t.line);
+                if (t.line.geometry) t.line.geometry.dispose();
+                if (t.line.material) t.line.material.dispose();
+                this.tracers.splice(i, 1);
             }
         }
     }
@@ -193,6 +206,9 @@ export class WeaponSystem {
             this.muzzleLight.visible = false;
         }, 50);
 
+        const tracerEnd = flashPos.clone().add(direction.clone().multiplyScalar(Math.min(weapon.range || 80, 70)));
+        this.spawnTracer(flashPos, tracerEnd, this.currentWeaponKey === 'Sniper' ? 0xfff4aa : 0xffaa55);
+
         if (weapon.type === 'throwable') {
             const grenadeGeo = new THREE.SphereGeometry(0.15, 8, 8);
             const grenadeMat = new THREE.MeshStandardMaterial({ color: 0x223322, roughness: 0.8 });
@@ -226,7 +242,7 @@ export class WeaponSystem {
                 zombies.forEach(z => {
                     const dist = z.mesh.position.distanceTo(hitPoint);
                     if (dist < 10) {
-                        onHit(z, weapon.damage * (1 - dist / 10));
+                        onHit(z, weapon.damage * (1 - dist / 10), { isHeadshot: false, knockback: direction, point: hitPoint });
                         hitAnything = true;
                     }
                 });
@@ -249,7 +265,9 @@ export class WeaponSystem {
             if (intersects.length > 0) {
                 const zombie = zombieMap.get(intersects[0].object);
                 if (zombie) {
-                    onHit(zombie, weapon.damage);
+                    const obj = intersects[0].object;
+                    const isHeadshot = !!(obj.userData && obj.userData.hitZone === 'head');
+                    onHit(zombie, weapon.damage, { isHeadshot, knockback: direction, point: intersects[0].point });
                     if (onHitAny) onHitAny();
                 }
             }
@@ -284,5 +302,13 @@ export class WeaponSystem {
         mesh.position.copy(point);
         this.scene.add(mesh);
         this.explosions.push({ mesh, scale: 1 });
+    }
+
+    spawnTracer(from, to, color = 0xffaa55) {
+        const geom = new THREE.BufferGeometry().setFromPoints([from, to]);
+        const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 });
+        const line = new THREE.Line(geom, mat);
+        this.scene.add(line);
+        this.tracers.push({ line, life: 1.0 });
     }
 }

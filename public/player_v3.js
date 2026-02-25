@@ -29,6 +29,8 @@ export class Player {
         this.ammoReserves = { 'AK47': 90, 'Sniper': 15, 'RPG': 3, 'Grenade': 3 };
         this.isDriving = false;
         this.currentVehicle = null;
+        this.touchMove = new THREE.Vector2();
+        this.lookSensitivity = 1;
         this.flashlight = new THREE.SpotLight(0xffffff, 2, 25, Math.PI / 4, 0.4);
         this.flashlight.visible = true;
         this.scene.add(this.flashlight);
@@ -177,36 +179,79 @@ export class Player {
 
         this.handGroup.add(this.leftArm, this.rightArm);
 
-        // Advanced Gun Model Detail
+        // === ADVANCED ASSAULT RIFLE MODEL (AK STYLE) ===
         const gunGroup = new THREE.Group();
-        const gunBodyGeo = new THREE.BoxGeometry(0.1, 0.15, 0.7);
-        const gunMat = new THREE.MeshStandardMaterial({ color: 0x151515, metalness: 0.8, roughness: 0.3 });
-        const gunBody = new THREE.Mesh(gunBodyGeo, gunMat);
-        gunGroup.add(gunBody);
+        const metalMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.9, roughness: 0.2 });
+        const woodMat = new THREE.MeshStandardMaterial({ color: 0x4d2911, roughness: 0.8 });
 
-        const barrelGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.4, 8);
-        const barrel = new THREE.Mesh(barrelGeo, gunMat);
+        // Receiver
+        const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.45), metalMat);
+        gunGroup.add(receiver);
+
+        // Barrel
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.5, 8), metalMat);
         barrel.rotation.x = Math.PI / 2;
-        barrel.position.set(0, 0.02, -0.5);
+        barrel.position.set(0, 0.04, -0.45);
         gunGroup.add(barrel);
 
-        const scopeGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.2, 8);
-        const scope = new THREE.Mesh(scopeGeo, gunMat);
-        scope.rotation.x = Math.PI / 2;
-        scope.position.set(0, 0.11, -0.1);
-        gunGroup.add(scope);
+        // Gas Tube
+        const gasTube = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.35, 8), metalMat);
+        gasTube.rotation.x = Math.PI / 2;
+        gasTube.position.set(0, 0.08, -0.3);
+        gunGroup.add(gasTube);
+
+        // Handguard (Wood)
+        const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 0.3), woodMat);
+        handguard.position.set(0, 0.02, -0.3);
+        gunGroup.add(handguard);
+
+        // Stock (Wood)
+        const stock = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.22, 0.4), woodMat);
+        stock.position.set(0, -0.02, 0.4);
+        gunGroup.add(stock);
+
+        // Grip (Black)
+        const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.25, 0.12), new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 }));
+        grip.rotation.x = 0.3;
+        grip.position.set(0, -0.18, 0.1);
+        gunGroup.add(grip);
+
+        // Magazine (Curved style)
+        const mag = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.2), metalMat);
+        mag.rotation.x = 0.3;
+        mag.position.set(0, -0.25, -0.15);
+        gunGroup.add(mag);
+
+        // Iron Sights
+        const frontSight = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.08, 0.02), metalMat);
+        frontSight.position.set(0, 0.08, -0.65);
+        gunGroup.add(frontSight);
+
+        const rearSight = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.02), metalMat);
+        rearSight.position.set(0, 0.12, 0.1);
+        gunGroup.add(rearSight);
 
         this.gunMesh = gunGroup;
         this.gunTargetPos = new THREE.Vector3(0.35, -0.3, -0.6);
-        this.gunMesh.position.copy(this.gunTargetPos);
+        this.adsTargetPos = new THREE.Vector3(0, -0.25, -0.4); // Centered for ADS
+        this.gunCurrentPos = this.gunTargetPos.clone();
+        this.gunMesh.position.copy(this.gunCurrentPos);
         this.handGroup.add(this.gunMesh);
 
+        // Recoil & ADS properties
+        this.recoilOffset = 0;
+        this.isADS = false;
+        this.fovTarget = 75;
+        this.reloadAnim = 0;
+        this.hurtAnim = 0;
+        this.deathAnim = 0;
+        this.victoryAnim = 0;
+
         // Grenade Model Detail
-        const grenadeGeo = new THREE.SphereGeometry(0.12, 8, 8);
-        const grenadeMat = new THREE.MeshStandardMaterial({ color: 0x223322, roughness: 0.8 });
+        const grenadeGeo = new THREE.SphereGeometry(0.15, 12, 12);
+        const grenadeMat = new THREE.MeshStandardMaterial({ color: 0x334422, roughness: 0.7, metalness: 0.3 });
         this.grenadeHandMesh = new THREE.Mesh(grenadeGeo, grenadeMat);
         this.grenadeHandMesh.position.copy(this.gunTargetPos);
-        this.grenadeHandMesh.position.y += 0.1; // Adjust position slightly for hand
         this.grenadeHandMesh.visible = false;
         this.handGroup.add(this.grenadeHandMesh);
 
@@ -233,11 +278,53 @@ export class Player {
         window.addEventListener('keyup', (e) => this.keys[e.code] = false);
         window.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement) {
-                this.mouseRotation.y -= e.movementX * 0.002;
-                this.mouseRotation.x -= e.movementY * 0.002;
-                this.mouseRotation.x = Math.max(-1.4, Math.min(1.4, this.mouseRotation.x));
+                const sensitivity = this.isADS ? 0.001 : 0.002;
+                this.applyLookDelta(e.movementX, e.movementY, sensitivity);
             }
         });
+        window.addEventListener('mousedown', (e) => {
+            if (e.button === 2) this.isADS = true; // Right click
+        });
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 2) this.isADS = false;
+        });
+        window.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+
+    setTouchMove(x, y) {
+        this.touchMove.set(x, y);
+    }
+
+    clearTouchMove() {
+        this.touchMove.set(0, 0);
+    }
+
+    setLookSensitivity(multiplier) {
+        this.lookSensitivity = Math.max(0.4, Math.min(2.5, multiplier || 1));
+    }
+
+    applyLookDelta(dx, dy, baseSensitivity = 0.002) {
+        const sensitivity = baseSensitivity * this.lookSensitivity;
+        this.mouseRotation.y -= dx * sensitivity;
+        this.mouseRotation.x -= dy * sensitivity;
+        this.mouseRotation.x = Math.max(-1.25, Math.min(1.25, this.mouseRotation.x));
+    }
+
+    fireRecoil() {
+        this.recoilOffset = 0.15; // Push gun back
+        this.mouseRotation.x += 0.02; // Kick camera up
+    }
+
+    playReloadAnimation() {
+        this.reloadAnim = 1.0;
+    }
+
+    playVictoryPose() {
+        this.victoryAnim = 1.2;
+    }
+
+    playDeathAnimation() {
+        this.deathAnim = 1.5;
     }
 
     respawn() {
@@ -304,6 +391,52 @@ export class Player {
         this.leftLeg.visible = (this.viewMode === 'TPP');
         this.rightLeg.visible = (this.viewMode === 'TPP');
 
+        // Gun Smooth Transitions (ADS & Recoil)
+        const targetGunPos = this.isADS ? this.adsTargetPos : this.gunTargetPos;
+        this.gunCurrentPos.lerp(targetGunPos, 0.2);
+        this.gunMesh.position.copy(this.gunCurrentPos);
+        this.gunMesh.position.z += this.recoilOffset;
+        this.recoilOffset = THREE.MathUtils.lerp(this.recoilOffset, 0, 0.15);
+
+        if (this.reloadAnim > 0) {
+            this.reloadAnim -= delta * 2.3;
+            this.gunMesh.rotation.z = Math.sin((1 - this.reloadAnim) * Math.PI * 4) * 0.18;
+            this.gunMesh.rotation.x = 0.35 * (1 - this.reloadAnim);
+        } else {
+            this.gunMesh.rotation.z = THREE.MathUtils.lerp(this.gunMesh.rotation.z, 0, 0.2);
+            this.gunMesh.rotation.x = THREE.MathUtils.lerp(this.gunMesh.rotation.x, 0, 0.2);
+        }
+
+        if (this.hurtAnim > 0) {
+            this.hurtAnim -= delta * 3;
+            this.torsoMesh.rotation.x = -0.45 * this.hurtAnim;
+        }
+
+        if (this.victoryAnim > 0) {
+            this.victoryAnim -= delta;
+            this.rightArm.rotation.z = -1.2 + Math.sin(Date.now() * 0.02) * 0.25;
+            this.leftArm.rotation.z = 1.0;
+        } else {
+            this.rightArm.rotation.z = THREE.MathUtils.lerp(this.rightArm.rotation.z, 0, 0.15);
+            this.leftArm.rotation.z = THREE.MathUtils.lerp(this.leftArm.rotation.z, 0, 0.15);
+        }
+
+        if (this.deathAnim > 0) {
+            this.deathAnim -= delta;
+            this.group.rotation.x = THREE.MathUtils.lerp(this.group.rotation.x, -1.5, 0.08);
+        } else {
+            this.group.rotation.x = THREE.MathUtils.lerp(this.group.rotation.x, 0, 0.08);
+        }
+
+        if (this.health < 28) {
+            this.camera.position.y += Math.sin(Date.now() * 0.013) * 0.01;
+        }
+
+        // FOV Update
+        this.fovTarget = this.isADS ? 45 : 75;
+        this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, this.fovTarget, 0.2);
+        this.camera.updateProjectionMatrix();
+
         // Leg walk animation
         if (isMoving) {
             const legTime = Date.now() * 0.01 * speedMult;
@@ -328,7 +461,7 @@ export class Player {
     }
 
     updateMovement(delta, collidables) {
-        const isSprinting = this.keys['ShiftLeft'];
+        const isSprinting = this.keys['ShiftLeft'] || this.touchMove.length() > 0.92;
         const targetSpeed = this.speed * (isSprinting ? this.sprintMultiplier : 1);
 
         const wishDir = new THREE.Vector3(0, 0, 0);
@@ -339,6 +472,11 @@ export class Player {
         if (this.keys['KeyS']) wishDir.sub(forward);
         if (this.keys['KeyA']) wishDir.sub(right);
         if (this.keys['KeyD']) wishDir.add(right);
+
+        if (this.touchMove.lengthSq() > 0.0001) {
+            wishDir.add(forward.clone().multiplyScalar(-this.touchMove.y));
+            wishDir.add(right.clone().multiplyScalar(this.touchMove.x));
+        }
 
         if (wishDir.length() > 0) {
             wishDir.normalize();
@@ -480,12 +618,16 @@ export class Player {
 
         if (this.viewMode === 'FPP') {
             const targetPos = this.group.position.clone().add(new THREE.Vector3(0, 1.7 + breathM, 0));
-            this.camera.position.lerp(targetPos, 0.4); // Smooth follow slightly
+            this.camera.position.lerp(targetPos, 0.6); // Stiffer follow for FPP
             this.camera.rotation.copy(this.mouseRotation);
             this.handGroup.position.set(0, 0, 0);
         } else {
             // Improved TPP: Tactical Over-the-shoulder
-            const offset = new THREE.Vector3(0.6, 0.4, 3.0); // True tactical TPS shoulder view
+            const shoulderOffset = this.isADS ? 0.4 : 0.6;
+            const distOffset = this.isADS ? 1.5 : 3.0;
+            const heightOffset = this.isADS ? 0.3 : 0.4;
+
+            const offset = new THREE.Vector3(shoulderOffset, heightOffset, distOffset);
             offset.applyEuler(new THREE.Euler(this.mouseRotation.x * 0.5, this.mouseRotation.y, 0));
             const target = this.group.position.clone().add(new THREE.Vector3(0, 1.6 + breathM, 0));
             this.camera.position.lerp(target.clone().add(offset), 0.15); // Smooth camera follow
@@ -493,8 +635,9 @@ export class Player {
             // Aiming interpolations
             this.camera.rotation.copy(this.mouseRotation);
 
-            // Adjust hands for TPP so they don't look disconnected
-            this.handGroup.position.set(0.3, -0.3, -0.2);
+            // Adjust hands for TPP
+            const handTPPPos = this.isADS ? new THREE.Vector3(0.15, -0.2, -0.5) : new THREE.Vector3(0.3, -0.3, -0.2);
+            this.handGroup.position.lerp(handTPPPos, 0.2);
         }
     }
 
@@ -523,6 +666,7 @@ export class Player {
         // Reactive Hit Animation
         if (this.torsoMesh) this.torsoMesh.rotation.x = -0.5; // recoil back abruptly
         if (this.headMesh) this.headMesh.rotation.x = -0.3;
+        this.hurtAnim = 1.0;
 
         // Voice grunts logic
         if (Math.random() < 0.4) {

@@ -87,34 +87,70 @@ export class Zombie {
         const skinMat = new THREE.MeshStandardMaterial({ color: 0x556b4f }); // Pale greenish-grey skin
         this.skinMat = skinMat;
 
-        const lArm = new THREE.Mesh(armGeo, this.bodyMat);
-        lArm.position.set(-(0.4 * widthMultiplier), (1.2 * heightMultiplier) + 0.3, 0.4);
-        lArm.rotation.x = -Math.PI / 1.8;
-        lArm.castShadow = true;
+        this.lArm = new THREE.Mesh(armGeo, this.bodyMat);
+        this.lArm.position.set(-(0.4 * widthMultiplier), (1.2 * heightMultiplier) + 0.3, 0.4);
+        this.lArm.rotation.x = -Math.PI / 1.8;
+        this.lArm.castShadow = true;
 
         const lHand = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), this.skinMat);
         lHand.position.y = -armLength / 2 - 0.1;
-        lArm.add(lHand);
+        this.lArm.add(lHand);
 
-        const rArm = new THREE.Mesh(armGeo, this.bodyMat);
-        rArm.position.set((0.4 * widthMultiplier), (1.2 * heightMultiplier) + 0.3, 0.4);
-        rArm.rotation.x = -Math.PI / 1.8;
-        rArm.castShadow = true;
+        this.rArm = new THREE.Mesh(armGeo, this.bodyMat);
+        this.rArm.position.set((0.4 * widthMultiplier), (1.2 * heightMultiplier) + 0.3, 0.4);
+        this.rArm.rotation.x = -Math.PI / 1.8;
+        this.rArm.castShadow = true;
 
         const rHand = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), skinMat);
         rHand.position.y = -armLength / 2 - 0.1;
         this.rHand = rHand;
-        rArm.add(rHand);
+        this.rArm.add(rHand);
+        this.mesh.add(this.lArm, this.rArm); // Arms added here
 
-        this.mesh.add(lArm, rArm);
+        // Fingers / Claws
+        const fingerGeo = new THREE.BoxGeometry(0.04, 0.15, 0.04);
+        const fingerMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+        for (let i = 0; i < 3; i++) {
+            const f1 = new THREE.Mesh(fingerGeo, fingerMat);
+            f1.position.set((i - 1) * 0.06, -0.15, 0.08);
+            lHand.add(f1);
+            const f2 = new THREE.Mesh(fingerGeo, fingerMat);
+            f2.position.set((i - 1) * 0.06, -0.15, 0.08);
+            rHand.add(f2);
+        }
+
+        // Add "Torn Clothes" details
+        for (let i = 0; i < 6; i++) {
+            const tear = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.22), this.bodyMat);
+            const side = Math.random() > 0.5 ? 0.21 * widthMultiplier : -0.21 * widthMultiplier;
+            tear.position.set((Math.random() - 0.5) * 0.6 * widthMultiplier, 1.2 * heightMultiplier * Math.random() + 0.6, side);
+            tear.rotation.z = Math.random() * Math.PI;
+            tear.rotation.y = side > 0 ? 0 : Math.PI;
+            this.mesh.add(tear);
+        }
+
+        this.mesh.add(this.lArm, this.rArm);
         this.scene.add(this.mesh);
+
+        // Armor Mesh (for armored type - hidden by default)
+        const armorMat = new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.8, roughness: 0.2 });
+        this.helmet = new THREE.Mesh(new THREE.BoxGeometry(headSize * 1.1, headSize * 0.5, headSize * 1.1), armorMat);
+        this.helmet.position.copy(head.position);
+        this.helmet.position.y += headSize * 0.3;
+        this.helmet.visible = false;
+        this.mesh.add(this.helmet);
+
+        // Raycaster for ground clamping
+        this.raycaster = new THREE.Raycaster();
+        this.down = new THREE.Vector3(0, -1, 0);
     }
 
     spawn(x, z, wave = 1, groundMesh = null) {
+        this.groundMesh = groundMesh; // Store groundMesh
         const spawnPosition = new THREE.Vector3(x, 0, z);
         if (groundMesh) {
-            const rayOrigin = spawnPosition.clone().add(new THREE.Vector3(0, 50, 0));
-            Zombie.spawnRaycaster.set(rayOrigin, Zombie.downVector);
+            spawnPosition.y = 100;
+            Zombie.spawnRaycaster.set(spawnPosition, Zombie.downVector);
             const intersects = Zombie.spawnRaycaster.intersectObject(groundMesh, true);
             if (intersects.length > 0) {
                 spawnPosition.y = intersects[0].point.y;
@@ -215,6 +251,7 @@ export class Zombie {
             this.isPhantom = false;
             this.bodyMat.transparent = false;
             this.bodyMat.opacity = 1.0;
+            this.helmet.visible = true; // Show helmet for armored
         } else {
             // NORMAL
             this.type = 'normal';
@@ -291,23 +328,49 @@ export class Zombie {
     showHitEffect() {
         if (this.isDead) return;
         // Flash effect
-        this.mesh.traverse(o => { if (o.material) o.material.emissive?.set(0x330000); });
-        setTimeout(() => { if (this.mesh) this.mesh.traverse(o => { if (o.material) o.material.emissive?.set(0x000000); }); }, 100);
-        for (let i = 0; i < 3; i++) {
+        this.mesh.traverse(o => { if (o.material) { o.material.emissive?.set(0x990000); o.material.emissiveIntensity = 1.5; } });
+        setTimeout(() => { if (this.mesh) this.mesh.traverse(o => { if (o.material) { o.material.emissive?.set(0x000000); o.material.emissiveIntensity = 0; } }); }, 80);
+
+        // Use Particle system if possible, otherwise meshes
+        for (let i = 0; i < 8; i++) {
             const blood = new THREE.Mesh(
-                new THREE.SphereGeometry(0.06, 6, 6),
-                new THREE.MeshBasicMaterial({ color: 0x990000, transparent: true, opacity: 0.8 })
+                new THREE.SphereGeometry(0.08, 6, 6),
+                new THREE.MeshBasicMaterial({ color: 0xcc0000, transparent: true, opacity: 0.9 })
             );
-            blood.position.copy(this.mesh.position).add(new THREE.Vector3((Math.random() - 0.5) * 0.4, 1 + Math.random() * 0.4, (Math.random() - 0.5) * 0.4));
+            const burstDir = new THREE.Vector3((Math.random() - 0.5), Math.random() * 0.5 + 0.5, (Math.random() - 0.5)).normalize();
+            blood.position.copy(this.mesh.position).add(new THREE.Vector3(0, 1.5, 0));
             this.scene.add(blood);
-            const life = 340 + Math.random() * 220;
-            setTimeout(() => { this.scene.remove(blood); blood.geometry.dispose(); blood.material.dispose(); }, life);
+
+            const life = 600 + Math.random() * 400;
+            const startTime = Date.now();
+            const animateBlood = () => {
+                if (Date.now() - startTime > life) {
+                    this.scene.remove(blood);
+                    blood.geometry.dispose();
+                    blood.material.dispose();
+                    return;
+                }
+                blood.position.addScaledVector(burstDir, 0.1);
+                burstDir.y -= 0.02; // Gravity for blood
+                requestAnimationFrame(animateBlood);
+            };
+            animateBlood();
         }
         audioSystem.playZombieHit();
     }
 
     update(delta, player, house, fence, onAttack, walls = []) {
-        if (this.mesh.position.y < this.targetGroundY) this.mesh.position.y = this.targetGroundY;
+        // 🔒 HARD LOCK TO GROUND (Part 1 FIX)
+        if (this.mesh.position.y < this.targetGroundY) {
+            this.mesh.position.y = this.targetGroundY;
+        }
+
+        // ✅ Add Safety Kill (Extra Protection)
+        if (this.mesh.position.y < -5) {
+            this.health = 0;
+            this.die();
+            return;
+        }
 
         if (this.isRising) {
             this.riseTime += delta;
@@ -484,17 +547,31 @@ export class Zombie {
             if (pos.y < this.targetGroundY) {
                 pos.y = this.targetGroundY;
             }
+            // Shambling / Running animation
+            const isRunning = this.type === 'runner' || this.enraged;
+            const animSpeed = isRunning ? 0.012 : 0.005;
+            const time = Date.now() * animSpeed;
 
-            this.mesh.lookAt(actualTargetPos.x, pos.y, actualTargetPos.z);
+            // Bobbing motion
+            this.mesh.position.y += Math.sin(time * 12) * 0.02;
+            this.mesh.rotation.z = Math.sin(time * 8) * 0.08;
+            this.mesh.rotation.x = Math.sin(time * 6) * 0.05;
 
-            // Shambling animation
-            const time = Date.now() * 0.005;
-            this.mesh.rotation.z = Math.sin(time * 1.5) * 0.05;
             if (Math.random() < 0.005) audioSystem.playZombieGroan();
-            const legSwing = Math.sin(time * 2.5) * 0.6;
+            const legFreq = isRunning ? 4.5 : 2.5;
+            const legAmp = isRunning ? 0.8 : 0.6;
+            const legSwing = Math.sin(time * 20) * legAmp;
             if (this.leftLeg && this.rightLeg) {
                 this.leftLeg.rotation.x = -legSwing;
                 this.rightLeg.rotation.x = legSwing;
+            }
+
+            // Arm Sway 
+            if (this.lArm && this.rArm) {
+                this.lArm.rotation.z = Math.sin(time * 10) * 0.1;
+                this.rArm.rotation.z = -Math.sin(time * 10) * 0.1;
+                this.lArm.rotation.x = -Math.PI / 1.8 + Math.cos(time * 10) * 0.2;
+                this.rArm.rotation.x = -Math.PI / 1.8 - Math.cos(time * 10) * 0.2;
             }
         } else {
             // Attack logic
@@ -834,6 +911,22 @@ export class ZombieManager {
         z.bodyMat.color.setHex(0x440000);
         z.bodyMat.emissive = new THREE.Color(0x220000);
         z.bodyMat.emissiveIntensity = 0.5;
+
+        // BOSS VISUAL EXTRAS: Crown / Spikes
+        const bossSpikeGeo = new THREE.ConeGeometry(0.12, 0.4, 6);
+        const bossSpikeMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 2 });
+        for (let i = 0; i < 5; i++) {
+            const spike = new THREE.Mesh(bossSpikeGeo, bossSpikeMat);
+            const angle = (i / 5) * Math.PI * 2;
+            spike.position.set(Math.cos(angle) * 0.25, 2.3, Math.sin(angle) * 0.25);
+            spike.rotation.x = 0.2;
+            z.mesh.add(spike);
+        }
+
+        // Glowing Aura
+        const aura = new THREE.PointLight(0xff2222, 10, 8);
+        aura.position.set(0, 1.5, 0);
+        z.mesh.add(aura);
 
         this.boss = z;
         this.bossActive = true;

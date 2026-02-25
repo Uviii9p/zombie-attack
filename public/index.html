@@ -3,7 +3,8 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1.0">
     <title id="game-title">Desert Survival: Zombie Apocalypse</title>
     <link rel="stylesheet" href="style.css">
     <!-- Google Fonts -->
@@ -52,6 +53,15 @@
         });
     </script>
     <div id="game-container">
+        <div id="loading-screen">
+            <div class="loading-card">
+                <h2>Loading Mission</h2>
+                <div class="loading-bar-track">
+                    <div id="loading-progress" class="loading-bar-fill"></div>
+                </div>
+                <div id="loading-label">Initializing engine...</div>
+            </div>
+        </div>
         <!-- Damage Flash Overlay -->
         <div id="damage-overlay"></div>
         <!-- UI Elements -->
@@ -107,8 +117,18 @@
                     style="margin-left: 15px; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; border: 1px solid #2ecc71; color: #2ecc71; font-weight: bold; font-size: 0.9rem;">
                     [H] Medkit: <span id="medkit-count">0</span>
                 </div>
+                <button id="rage-btn" style="padding: 5px 10px; font-size: 0.7rem; margin-left: 8px; border:1px solid #ff4d4d; color:#ffb3b3; background: rgba(120,0,0,0.25);">RAGE [Q]</button>
                 <button id="hud-shop-btn" style="padding: 5px 10px; font-size: 0.7rem; margin-left: 10px;">SHOP
                     [B]</button>
+            </div>
+            <div id="progress-panel" class="glass-panel">
+                <div class="progress-row">
+                    <span id="xp-level">LVL 1</span>
+                    <span id="skill-points">SP 0</span>
+                </div>
+                <div class="progress-bar">
+                    <div id="xp-fill" class="fill xp-fill"></div>
+                </div>
             </div>
 
             <div id="shop-hint">Press [B]: Shop | [V]: View | [TAB]: Backpack | [F]: Flashlight | [X]: Gate</div>
@@ -135,6 +155,30 @@
                     <div class="scope-tick scope-tick-r"></div>
                     <div class="scope-tick scope-tick-t"></div>
                     <div class="scope-tick scope-tick-b"></div>
+                </div>
+            </div>
+
+            <div id="mobile-controls" class="hidden">
+                <div id="mobile-joystick-zone" class="mobile-joystick-zone">
+                    <div id="mobile-joystick-base" class="mobile-joystick-base">
+                        <div id="mobile-joystick-stick" class="mobile-joystick-stick"></div>
+                    </div>
+                </div>
+                <div class="mobile-actions">
+                    <button id="mobile-shop-btn" class="mobile-action-btn" title="Shop">🛒</button>
+                    <button id="mobile-view-btn" class="mobile-action-btn" title="View">👁️</button>
+                    <button id="mobile-backpack-btn" class="mobile-action-btn" title="Backpack">🎒</button>
+                    <button id="mobile-flashlight-btn" class="mobile-action-btn" title="Flashlight">🔦</button>
+                    <button id="mobile-gate-btn" class="mobile-action-btn" title="Gate">🚪</button>
+                    <button id="mobile-heal-btn" class="mobile-action-btn heal-btn" title="Heal">
+                        🩺
+                        <span id="mobile-medkit-count">0</span>
+                    </button>
+                    <button id="mobile-shoot-btn" class="mobile-shoot-btn" title="Shoot">
+                        🔫
+                        <span id="mobile-shoot-cooldown" class="shoot-cooldown"></span>
+                    </button>
+                    <button id="mobile-rage-btn" class="mobile-action-btn" title="Rage">🔥</button>
                 </div>
             </div>
         </div>
