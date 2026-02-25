@@ -84,6 +84,8 @@ class Game {
         this.shakeIntensity = 0;
         this.baseCamPos = new THREE.Vector3();
 
+        this.dustParticles = [];
+
         // Initialize Systems
         this.player = new Player(this.scene, this.camera);
         this.zombieManager = new ZombieManager(this.scene);
@@ -281,6 +283,25 @@ class Game {
                 alert('Congratulations! You survived all 10 Waves! Preparing next map...');
                 location.reload();
             }, 3000);
+        });
+
+        // Dust particle listener
+        window.addEventListener('player-run-dust', (e) => {
+            if (!this.gameStarted || this.isGameOver) return;
+            const pos = e.detail;
+            const dustGeo = new THREE.PlaneGeometry(0.5, 0.5);
+            const dustMat = new THREE.MeshBasicMaterial({ color: 0x887766, transparent: true, opacity: 0.6, depthWrite: false });
+            const dust = new THREE.Mesh(dustGeo, dustMat);
+            dust.position.set(pos.x + (Math.random() - 0.5) * 0.5, 0.1, pos.z + (Math.random() - 0.5) * 0.5);
+            dust.rotation.x = -Math.PI / 2;
+            this.scene.add(dust);
+            this.dustParticles.push({
+                mesh: dust,
+                life: 1.0,
+                vy: 0.01 + Math.random() * 0.02,
+                vx: (Math.random() - 0.5) * 0.02,
+                vz: (Math.random() - 0.5) * 0.02
+            });
         });
     }
 
@@ -1515,6 +1536,26 @@ class Game {
             if (s.userData.life <= 0) {
                 this.scene.remove(s);
                 this.sparkles.splice(i, 1);
+            }
+        }
+
+        // Update Dust Particles
+        if (this.dustParticles) {
+            for (let i = this.dustParticles.length - 1; i >= 0; i--) {
+                let p = this.dustParticles[i];
+                p.mesh.position.y += p.vy;
+                p.mesh.position.x += p.vx;
+                p.mesh.position.z += p.vz;
+                p.mesh.scale.x += 0.02;
+                p.mesh.scale.y += 0.02;
+                p.life -= d * 1.5;
+                p.mesh.material.opacity = p.life * 0.6;
+                if (p.life <= 0) {
+                    this.scene.remove(p.mesh);
+                    p.mesh.geometry.dispose();
+                    p.mesh.material.dispose();
+                    this.dustParticles.splice(i, 1);
+                }
             }
         }
 

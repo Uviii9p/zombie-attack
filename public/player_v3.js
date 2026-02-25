@@ -32,53 +32,130 @@ export class Player {
         this.scene.add(this.flashlight);
         this.scene.add(this.flashlight.target);
 
-        // Model
+        // Model Base
         this.group = new THREE.Group();
 
-        // High detail Torso
-        const torsoGeo = new THREE.BoxGeometry(0.7, 1.2, 0.45);
-        const torsoMat = new THREE.MeshStandardMaterial({ color: 0x1f2326, roughness: 0.9 });
-        this.torsoMesh = new THREE.Mesh(torsoGeo, torsoMat);
-        this.torsoMesh.position.y = 1.0;
-        this.torsoMesh.castShadow = true;
+        // High Quality PBR Materials
+        const skinMat = new THREE.MeshStandardMaterial({ color: 0xe0ac69, roughness: 0.35, metalness: 0.05 });
+        const shirtMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8, metalness: 0.1 });
+        const vestMat = new THREE.MeshStandardMaterial({ color: 0x1a241a, roughness: 0.9, metalness: 0.2 });
+        const pantsMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.85 });
+        const bootsMat = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.6, metalness: 0.2 });
+        const hairMat = new THREE.MeshStandardMaterial({ color: 0x211710, roughness: 0.9 });
+        const beltMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5, metalness: 0.3 });
+
+        // === TORSO === (Athletic V-Taper Shape)
+        this.torsoMesh = new THREE.Group();
+        this.torsoMesh.position.y = 1.05;
         this.group.add(this.torsoMesh);
 
-        // Tactical Vest/Belt (adds depth)
-        const vestGeo = new THREE.BoxGeometry(0.75, 0.5, 0.5);
-        const vestMat = new THREE.MeshStandardMaterial({ color: 0x3d433b, roughness: 1.0 });
-        const vest = new THREE.Mesh(vestGeo, vestMat);
-        vest.position.y = 0.9;
-        this.group.add(vest);
+        // Chest / Upper Body
+        const chestGeo = new THREE.BoxGeometry(0.65, 0.6, 0.35);
+        const chest = new THREE.Mesh(chestGeo, shirtMat);
+        chest.position.y = 0.25;
+        chest.castShadow = true;
+        this.torsoMesh.add(chest);
 
-        // Legs
-        const legGeo = new THREE.BoxGeometry(0.3, 0.8, 0.35);
-        const legMat = new THREE.MeshStandardMaterial({ color: 0x24282c, roughness: 0.8 });
+        // Abdomen (Tapered)
+        const absGeo = new THREE.BoxGeometry(0.55, 0.45, 0.3);
+        const abs = new THREE.Mesh(absGeo, shirtMat);
+        abs.position.y = -0.25;
+        abs.castShadow = true;
+        this.torsoMesh.add(abs);
 
-        this.leftLeg = new THREE.Mesh(legGeo, legMat);
-        this.leftLeg.position.set(-0.2, 0.4, 0);
-        this.leftLeg.castShadow = true;
+        // Tactical Armored Vest
+        const vest = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.55, 0.4), vestMat);
+        vest.position.y = 0.25;
+        this.torsoMesh.add(vest);
 
-        this.rightLeg = new THREE.Mesh(legGeo, legMat);
-        this.rightLeg.position.set(0.2, 0.4, 0);
-        this.rightLeg.castShadow = true;
+        // Vest Pouches (Ammo/Utility details)
+        for (let i = 0; i < 3; i++) {
+            const pouch = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.2, 0.1), vestMat);
+            pouch.position.set(-0.2 + (i * 0.2), 0.15, 0.25);
+            this.torsoMesh.add(pouch);
+        }
 
-        this.group.add(this.leftLeg, this.rightLeg);
+        // Utility Belt
+        const belt = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.12, 0.35), beltMat);
+        belt.position.y = -0.45;
+        this.torsoMesh.add(belt);
 
-        // Futuristic Military Helmet
-        const headGeo = new THREE.BoxGeometry(0.45, 0.45, 0.5);
-        const headMat = new THREE.MeshStandardMaterial({ color: 0x2c3329, roughness: 0.6, metalness: 0.1 });
-        this.headMesh = new THREE.Mesh(headGeo, headMat);
-        this.headMesh.position.y = 1.85;
-        this.headMesh.castShadow = true;
+        // Grenades on belt
+        for (let i = 0; i < 2; i++) {
+            const gr = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshStandardMaterial({ color: 0x224422, roughness: 0.7, metalness: 0.3 }));
+            gr.position.set(-0.2 + (i * 0.4), -0.45, 0.2);
+            this.torsoMesh.add(gr);
+        }
 
-        // Tactical Goggles
-        const gogglesGeo = new THREE.BoxGeometry(0.46, 0.12, 0.1);
-        const gogglesMat = new THREE.MeshStandardMaterial({ color: 0x0563b5, emissive: 0x011a33, roughness: 0.1, metalness: 0.8 });
-        const goggles = new THREE.Mesh(gogglesGeo, gogglesMat);
-        goggles.position.set(0, 0.05, -0.25);
-        this.headMesh.add(goggles);
+        // Tactical Backpack (Weapon Storage)
+        const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.65, 0.25), vestMat);
+        backpack.position.set(0, 0.2, -0.3);
+        backpack.castShadow = true;
+        this.torsoMesh.add(backpack);
 
+        // === LEGS ===
+        this.leftLeg = new THREE.Group();
+        this.leftLeg.position.set(-0.18, 0.55, 0);
+        this.group.add(this.leftLeg);
+
+        const lThigh = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.45, 0.28), pantsMat);
+        lThigh.position.y = -0.2; lThigh.castShadow = true;
+        const lCalf = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.4, 0.25), pantsMat);
+        lCalf.position.y = -0.6; lCalf.castShadow = true;
+        const lKneePad = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.15, 0.3), vestMat);
+        lKneePad.position.y = -0.42;
+        const lBoot = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.2, 0.32), bootsMat);
+        lBoot.position.set(0, -0.9, 0.05); lBoot.castShadow = true;
+        this.leftLeg.add(lThigh, lCalf, lKneePad, lBoot);
+
+        this.rightLeg = new THREE.Group();
+        this.rightLeg.position.set(0.18, 0.55, 0);
+        this.group.add(this.rightLeg);
+
+        const rThigh = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.45, 0.28), pantsMat);
+        rThigh.position.y = -0.2; rThigh.castShadow = true;
+        const rCalf = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.4, 0.25), pantsMat);
+        rCalf.position.y = -0.6; rCalf.castShadow = true;
+        const rKneePad = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.15, 0.3), vestMat);
+        rKneePad.position.y = -0.42;
+        const rBoot = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.2, 0.32), bootsMat);
+        rBoot.position.set(0, -0.9, 0.05); rBoot.castShadow = true;
+        this.rightLeg.add(rThigh, rCalf, rKneePad, rBoot);
+
+        // === HEAD & FACE === (High Quality)
+        this.headMesh = new THREE.Group();
+        this.headMesh.position.y = 1.7;
         this.group.add(this.headMesh);
+
+        // Head Base
+        const headGeo = new THREE.SphereGeometry(0.19, 16, 16);
+        const headMain = new THREE.Mesh(headGeo, skinMat);
+        headMain.castShadow = true;
+        this.headMesh.add(headMain);
+
+        // Jawline & Chin
+        const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.18, 0.25), skinMat);
+        jaw.position.set(0, -0.1, 0.05);
+        this.headMesh.add(jaw);
+
+        // Neck
+        const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.15, 8), skinMat);
+        neck.position.y = -0.25;
+        this.headMesh.add(neck);
+
+        // Short Military Fade Haircut
+        const hairTop = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.35), hairMat);
+        hairTop.position.set(0, 0.16, -0.02);
+        this.headMesh.add(hairTop);
+        const hairBack = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.1), hairMat);
+        hairBack.position.set(0, 0.05, -0.16);
+        this.headMesh.add(hairBack);
+
+        // Subtle Bead / Stubble Shadow
+        const beard = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.12, 0.26), new THREE.MeshStandardMaterial({ color: 0x211710, roughness: 1.0, opacity: 0.8, transparent: true }));
+        beard.position.set(0, -0.12, 0.06);
+        this.headMesh.add(beard);
+
         this.scene.add(this.group);
 
         // Hands / First Person Arms
@@ -183,11 +260,41 @@ export class Player {
         this.updateMovement(delta, collidables);
         this.updateCamera();
 
-        // Realistic hand bobbing
+        // Realistic hand bobbing & Idle breathing
         const time = Date.now() * 0.005;
-        const bobAmount = this.direction.length() > 0 ? 0.05 : 0.01;
-        this.handGroup.position.y = Math.sin(time) * bobAmount;
-        this.handGroup.position.x = Math.cos(time * 0.5) * (bobAmount * 0.5);
+        const isMoving = this.direction.length() > 0.01;
+        const speedMult = this.keys['ShiftLeft'] ? 1.5 : 1.0;
+
+        // Heavy breathing when low HP
+        const breathSpeed = (this.health < 30) ? 0.008 : 0.003;
+        const breathM = Math.sin(Date.now() * breathSpeed) * (this.health < 30 ? 0.04 : 0.01);
+
+        const bobAmountY = isMoving ? 0.08 * speedMult : 0.01 + breathM;
+        const bobAmountX = isMoving ? 0.04 * speedMult : 0.005;
+        const walkSpeed = isMoving ? time * speedMult : time;
+
+        this.handGroup.position.y = Math.sin(walkSpeed) * bobAmountY;
+        this.handGroup.position.x = Math.cos(walkSpeed * 0.5) * bobAmountX;
+
+        // Smooth Torso Breathing Animation
+        if (this.torsoMesh) {
+            this.torsoMesh.position.y = 1.05 + breathM;
+            this.torsoMesh.rotation.z = Math.cos(walkSpeed * 0.5) * (isMoving ? 0.05 : 0.002);
+            // Smoothly lerp towards target lean instead of instantly snapping
+            const targetLean = isMoving ? 0.15 : 0;
+            this.torsoMesh.rotation.x = THREE.MathUtils.lerp(this.torsoMesh.rotation.x, targetLean, 0.1);
+        }
+
+        // Animated Head looking around slightly when idle
+        if (this.headMesh && !isMoving) {
+            this.headMesh.rotation.y = Math.sin(Date.now() * 0.001) * 0.1;
+            this.headMesh.rotation.z = Math.cos(Date.now() * 0.0015) * 0.02;
+            this.headMesh.position.y = 1.7 + breathM;
+        } else if (this.headMesh) {
+            this.headMesh.rotation.y = 0;
+            this.headMesh.rotation.z = 0;
+            this.headMesh.position.y = 1.7 + Math.sin(walkSpeed) * 0.03; // Bob head when walking
+        }
 
         // Hide body in FPP
         this.torsoMesh.visible = (this.viewMode === 'TPP');
@@ -196,18 +303,25 @@ export class Player {
         this.rightLeg.visible = (this.viewMode === 'TPP');
 
         // Leg walk animation
-        if (this.direction.length() > 0.01) {
-            const time = Date.now() * 0.01;
-            const legSwing = Math.sin(time) * 0.5;
-            this.leftLeg.position.z = legSwing * 0.3;
-            this.leftLeg.rotation.x = -legSwing * 0.8;
-            this.rightLeg.position.z = -legSwing * 0.3;
-            this.rightLeg.rotation.x = legSwing * 0.8;
+        if (isMoving) {
+            const legTime = Date.now() * 0.01 * speedMult;
+            const legSwing = Math.sin(legTime) * 0.6;
+            this.leftLeg.position.z = legSwing * 0.25;
+            this.leftLeg.rotation.x = -legSwing * 0.9;
+            this.rightLeg.position.z = -legSwing * 0.25;
+            this.rightLeg.rotation.x = legSwing * 0.9;
+
+            // Dust particles when running
+            if (speedMult > 1.0 && Math.random() < 0.2) {
+                const event = new CustomEvent('player-run-dust', { detail: this.group.position });
+                window.dispatchEvent(event);
+            }
         } else {
-            this.leftLeg.position.z = 0;
-            this.leftLeg.rotation.x = 0;
-            this.rightLeg.position.z = 0;
-            this.rightLeg.rotation.x = 0;
+            // Smooth return to idle
+            this.leftLeg.position.z = THREE.MathUtils.lerp(this.leftLeg.position.z, 0, 0.1);
+            this.leftLeg.rotation.x = THREE.MathUtils.lerp(this.leftLeg.rotation.x, 0, 0.1);
+            this.rightLeg.position.z = THREE.MathUtils.lerp(this.rightLeg.position.z, 0, 0.1);
+            this.rightLeg.rotation.x = THREE.MathUtils.lerp(this.rightLeg.rotation.x, 0, 0.1);
         }
     }
 
@@ -359,16 +473,22 @@ export class Player {
     }
 
     updateCamera() {
+        // Heavy breathing camera effect
+        const breathM = Math.sin(Date.now() * ((this.health < 30) ? 0.008 : 0.003)) * ((this.health < 30) ? 0.008 : 0.002);
+
         if (this.viewMode === 'FPP') {
-            this.camera.position.copy(this.group.position).add(new THREE.Vector3(0, 1.7, 0));
+            const targetPos = this.group.position.clone().add(new THREE.Vector3(0, 1.7 + breathM, 0));
+            this.camera.position.lerp(targetPos, 0.4); // Smooth follow slightly
             this.camera.rotation.copy(this.mouseRotation);
             this.handGroup.position.set(0, 0, 0);
         } else {
-            // Improved TPP: Over-the-shoulder
-            const offset = new THREE.Vector3(0.8, 0.5, 3.5); // Closer and less extreme
-            offset.applyEuler(new THREE.Euler(this.mouseRotation.x * 0.5, this.mouseRotation.y, 0)); // Pitch affects height slightly
-            const target = this.group.position.clone().add(new THREE.Vector3(0, 1.6, 0));
-            this.camera.position.lerp(target.clone().add(offset), 0.15);
+            // Improved TPP: Tactical Over-the-shoulder
+            const offset = new THREE.Vector3(0.6, 0.4, 3.0); // True tactical TPS shoulder view
+            offset.applyEuler(new THREE.Euler(this.mouseRotation.x * 0.5, this.mouseRotation.y, 0));
+            const target = this.group.position.clone().add(new THREE.Vector3(0, 1.6 + breathM, 0));
+            this.camera.position.lerp(target.clone().add(offset), 0.15); // Smooth camera follow
+
+            // Aiming interpolations
             this.camera.rotation.copy(this.mouseRotation);
 
             // Adjust hands for TPP so they don't look disconnected
@@ -397,6 +517,20 @@ export class Player {
         audioSystem.playPlayerHit();
         this.damageEffect();
         this.health -= amount * (1 - (this.armor * 0.15));
+
+        // Reactive Hit Animation
+        if (this.torsoMesh) this.torsoMesh.rotation.x = -0.5; // recoil back abruptly
+        if (this.headMesh) this.headMesh.rotation.x = -0.3;
+
+        // Voice grunts logic
+        if (Math.random() < 0.4) {
+            // We can reuse audio logic or simulate grunt internally
+            const grunt = new Audio((Math.random() > 0.5) ? '/sounds/zombieHit.mp3' : '/sounds/zombieHit.mp3'); // Simulating pain hit until custom recorded
+            grunt.volume = 0.4;
+            grunt.playbackRate = 1.3;
+            grunt.play().catch(e => e);
+        }
+
         return this.health <= 0;
     }
 
