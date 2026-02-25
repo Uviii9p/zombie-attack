@@ -10,6 +10,7 @@ export class GameUI {
         this.coinBalance = document.getElementById('coin-balance');
         this.respawnCount = document.getElementById('respawn-count');
         this.respawnStat = document.getElementById('respawn-stat');
+        this.medkitCount = document.getElementById('medkit-count');
         this.gameOverScreen = document.getElementById('game-over-screen');
         this.finalCoins = document.getElementById('final-coins');
         this.menuScreen = document.getElementById('menu-screen');
@@ -100,6 +101,10 @@ export class GameUI {
     updateRespawns(count, visible = true) {
         if (this.respawnStat) this.respawnStat.style.display = visible ? 'flex' : 'none';
         if (this.respawnCount) this.respawnCount.textContent = count;
+    }
+
+    updateMedkits(count) {
+        if (this.medkitCount) this.medkitCount.textContent = count;
     }
 
     toggleShop(show) {

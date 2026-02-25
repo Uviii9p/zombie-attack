@@ -1230,22 +1230,26 @@ class Game {
             let syncData = null;
             if (type === 'weapon') {
                 if (this.weaponSystem.switchWeapon(id)) { ok = true; this.ui.updateWeapon(id); }
-            } else if (id === 'armor') ok = this.player.upgradeArmor();
-            else if (id === 'fence') {
-                this.fence.level++; this.fence.health = this.fence.maxHealth = 300 + (this.fence.level * 200);
-                this.createFence(); this.ui.updateFenceHealth(100);
-                this.createUpgradeSparkles(new THREE.Vector3(0, 2, 13), 0x00ffff);
-                ok = true;
-                syncData = { type: 'upgrade', id: 'fence' };
-            } else if (id === 'house') {
-                this.houseLevel = (this.houseLevel || 1) + 1;
-                this.maxHouseHealth = 500 + (this.houseLevel * 300);
-                this.houseHealth = this.maxHouseHealth;
-                this.createHouse();
-                this.ui.updateHouseHealth(100);
-                this.createUpgradeSparkles(new THREE.Vector3(0, 5, 0), 0xffff00);
-                ok = true;
-                syncData = { type: 'upgrade', id: 'house' };
+            } else if (type === 'upgrade') {
+                if (id === 'armor') {
+                    if (this.player.upgradeArmor()) {
+                        syncData = { type, id };
+                        const armorNames = ['Light', 'Medium', 'Heavy', 'Max'];
+                        if (this.ui) this.ui.announceWave(`${armorNames[this.player.armor - 1] || 'Armor'} Equipped`, '#3498db');
+                        ok = true;
+                    }
+                } else if (id === 'medkit') {
+                    this.player.medkits++;
+                    if (this.ui) {
+                        this.ui.updateMedkits(this.player.medkits);
+                        this.ui.announceWave('MEDKIT PURCHASED', '#2ecc71');
+                    }
+                    ok = true;
+                } else if (id === 'fence' || id === 'house') {
+                    ok = true;
+                    syncData = { type, id };
+                    this.processRemoteUpgrade({ type, id }); // Local process
+                }
             } else if (type === 'npc') {
                 let guardType = 'ak47';
                 let pos;
@@ -1286,6 +1290,7 @@ class Game {
                     ok = true;
                 }
             }
+
             if (ok) {
                 audioSystem.playBuy();
                 this.updateCoins(-cost);
@@ -1337,6 +1342,38 @@ class Game {
         if (e.code === 'KeyB') { audioSystem.playClick(); this.toggleShop(!this.isShopOpen); }
         if (e.code === 'Tab') { e.preventDefault(); audioSystem.playClick(); this.toggleBackpack(!this.isBackpackOpen); }
         if (e.code === 'Escape' && this.isSettingsOpen) { audioSystem.playClick(); this.toggleSettings(false); }
+        if (e.code === 'KeyH') {
+            if (this.player && this.player.tryHeal()) {
+                if (this.ui) {
+                    this.ui.updateMedkits(this.player.medkits);
+                    this.ui.updatePlayerHealth((this.player.health / this.player.maxHealth) * 100);
+
+                    // Floating Text Feedback
+                    const floatText = document.createElement('div');
+                    floatText.textContent = '+50 HP';
+                    floatText.style.position = 'absolute';
+                    floatText.style.left = '50%'; floatText.style.top = '40%';
+                    floatText.style.transform = 'translate(-50%, -50%)';
+                    floatText.style.color = '#2ecc71';
+                    floatText.style.fontWeight = '900';
+                    floatText.style.fontFamily = `'Orbitron', sans-serif`;
+                    floatText.style.fontSize = '3rem';
+                    floatText.style.textShadow = '0 0 20px #2ecc71, 0 0 40px #2ecc71';
+                    floatText.style.zIndex = '2000';
+                    floatText.style.pointerEvents = 'none';
+                    floatText.style.transition = 'all 1s ease-out';
+                    document.body.appendChild(floatText);
+
+                    // Trigger CSS transition animation
+                    setTimeout(() => {
+                        floatText.style.transform = 'translate(-50%, -150%) scale(1.5)';
+                        floatText.style.opacity = '0';
+                    }, 50);
+
+                    setTimeout(() => floatText.remove(), 1050);
+                }
+            }
+        }
         if (e.code === 'KeyV') { audioSystem.playClick(); this.player.toggleView(); this.ui.updateViewMode(this.player.viewMode); }
         if (e.code === 'KeyE') {
             audioSystem.playClick();

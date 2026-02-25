@@ -337,7 +337,12 @@ export class Zombie {
                 pos.copy(nextPos);
             }
 
-            this.mesh.lookAt(actualTargetPos.x, 0, actualTargetPos.z);
+            // Strict Y-axis clamping to prevent underground clipping
+            if (pos.y < 0) {
+                pos.y = 0;
+            }
+
+            this.mesh.lookAt(actualTargetPos.x, pos.y, actualTargetPos.z);
 
             // Shambling animation
             const time = Date.now() * 0.005;

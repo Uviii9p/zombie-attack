@@ -103,6 +103,10 @@
             <div id="coin-panel">
                 <span id="coin-balance">0</span>
                 <img src="https://img.icons8.com/color/48/000000/gold-pot.png" width="30" alt="coins">
+                <div
+                    style="margin-left: 15px; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; border: 1px solid #2ecc71; color: #2ecc71; font-weight: bold; font-size: 0.9rem;">
+                    [H] Medkit: <span id="medkit-count">0</span>
+                </div>
                 <button id="hud-shop-btn" style="padding: 5px 10px; font-size: 0.7rem; margin-left: 10px;">SHOP
                     [B]</button>
             </div>
@@ -177,6 +181,11 @@
                         <h3>FENCE UPGRADE</h3>
                         <p>Reinforce perimeter</p>
                         <button class="buy-btn" data-cost="400">400 Coins</button>
+                    </div>
+                    <div class="shop-item" data-type="upgrade" data-id="medkit">
+                        <h3>MEDKIT 🩺</h3>
+                        <p>Heals 50 HP. Press [H] to use</p>
+                        <button class="buy-btn" data-cost="150">150 Coins</button>
                     </div>
                     <div class="shop-item" data-type="upgrade" data-id="house">
                         <h3>HOUSE UPGRADE</h3>

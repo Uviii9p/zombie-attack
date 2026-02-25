@@ -12,6 +12,8 @@ export class Player {
         this.coins = 0;
         this.armor = 0;
         this.respawnsLeft = 5;
+        this.medkits = 0;
+        this.lastHealTime = 0;
         this.flashlight = null;
 
         // Base Props (Define everything BEFORE calling any methods like respawn)
@@ -567,5 +569,36 @@ export class Player {
         if (type === 'coins') this.coins += amount;
         else if (this.ammoReserves[type] !== undefined) this.ammoReserves[type] += amount;
         else this.inventory.push(type);
+    }
+
+    tryHeal() {
+        const now = Date.now();
+        if (this.medkits > 0 && this.health < this.maxHealth && now - this.lastHealTime > 3000) {
+            this.medkits--;
+            this.health = Math.min(this.maxHealth, this.health + 50);
+            this.lastHealTime = now;
+
+            // Visual feedback
+            const overlay = document.createElement('div');
+            overlay.style.position = 'absolute';
+            overlay.style.top = '0'; overlay.style.left = '0';
+            overlay.style.width = '100%'; overlay.style.height = '100%';
+            overlay.style.backgroundColor = 'rgba(46, 204, 113, 0.3)';
+            overlay.style.pointerEvents = 'none';
+            overlay.style.transition = 'opacity 0.5s';
+            overlay.style.zIndex = '100';
+            document.body.appendChild(overlay);
+
+            // Audio (reusing an existing sound as placeholder if needed, or actual heal sound)
+            audioSystem.playBuy(); // Placeholder healing sound
+
+            setTimeout(() => {
+                overlay.style.opacity = '0';
+                setTimeout(() => overlay.remove(), 500);
+            }, 100);
+
+            return true;
+        }
+        return false;
     }
 }
