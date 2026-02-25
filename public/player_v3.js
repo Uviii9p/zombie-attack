@@ -24,7 +24,7 @@ export class Player {
         this.keys = {};
         this.mouseRotation = new THREE.Euler(0, 0, 0, 'YXZ');
         this.inventory = [];
-        this.ammoReserves = { 'AK47': 90, 'Sniper': 15, 'RPG': 3 };
+        this.ammoReserves = { 'AK47': 90, 'Sniper': 15, 'RPG': 3, 'Grenade': 3 };
         this.isDriving = false;
         this.currentVehicle = null;
         this.flashlight = new THREE.SpotLight(0xffffff, 2, 25, Math.PI / 4, 0.4);

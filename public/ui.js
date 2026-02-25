@@ -41,7 +41,8 @@ export class GameUI {
         this.ammoDisplay = {
             'AK47': document.getElementById('ak47-ammo'),
             'Sniper': document.getElementById('sniper-ammo'),
-            'RPG': document.getElementById('rpg-ammo')
+            'RPG': document.getElementById('rpg-ammo'),
+            'Grenade': document.getElementById('grenade-ammo')
         };
 
         this.closeShopBtn = document.getElementById('close-shop');

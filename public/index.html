@@ -147,6 +147,7 @@
                     <p>AK47: <span id="ak47-ammo">0</span></p>
                     <p>Sniper: <span id="sniper-ammo">0</span></p>
                     <p>RPG: <span id="rpg-ammo">0</span></p>
+                    <p>Grenades: <span id="grenade-ammo">0</span></p>
                 </div>
                 <button id="close-backpack" class="btn-primary">Close</button>
             </div>
@@ -178,8 +179,8 @@
                         <button class="buy-btn" data-cost="400">400 Coins</button>
                     </div>
                     <div class="shop-item" data-type="upgrade" data-id="house">
-                        <h3>HOUSE REPAIR</h3>
-                        <p>Restore base health</p>
+                        <h3>HOUSE UPGRADE</h3>
+                        <p>Reinforce and heal base</p>
                         <button class="buy-btn" data-cost="200">200 Coins</button>
                     </div>
                     <div class="shop-item" data-type="ammo" data-id="AK47">
@@ -196,6 +197,16 @@
                         <h3>RPG AMMO PACK</h3>
                         <p>+5 Rockets</p>
                         <button class="buy-btn" data-cost="500">500 Coins</button>
+                    </div>
+                    <div class="shop-item" data-type="weapon" data-id="Grenade">
+                        <h3>GRENADE</h3>
+                        <p>Explosive throwable</p>
+                        <button class="buy-btn" data-cost="800">800 Coins</button>
+                    </div>
+                    <div class="shop-item" data-type="ammo" data-id="Grenade">
+                        <h3>GRENADE PACK</h3>
+                        <p>+3 Grenades</p>
+                        <button class="buy-btn" data-cost="300">300 Coins</button>
                     </div>
                     <div class="shop-item" data-type="npc" data-id="bodyguard">
                         <h3>🔫 ASSAULT GUARD</h3>
@@ -273,7 +284,7 @@
             </div>
             <div class="controls-hint">
                 WASD: Move | SPACE: Jump | SHIFT: Sprint<br>
-                LEFT CLICK: Shoot | R: Reload | 1,2,3: Switch Weapons
+                LEFT CLICK: Shoot | R: Reload | 1,2,3,4: Switch Weapons
             </div>
         </div>
 

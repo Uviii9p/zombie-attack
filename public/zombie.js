@@ -90,6 +90,7 @@ export class Zombie {
 
         const rHand = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), skinMat);
         rHand.position.y = -armLength / 2 - 0.1;
+        this.rHand = rHand;
         rArm.add(rHand);
 
         this.mesh.add(lArm, rArm);
@@ -156,12 +157,36 @@ export class Zombie {
             this.bodyMat.color.setHex(this.originalColor);
             this.isPhantom = false;
             this.bodyMat.transparent = false;
-            this.bodyMat.opacity = 1.0;
         }
 
         this.health = this.maxHealth;
         this.isDead = false;
         this.dropProcessed = false;
+
+        if (this.weaponMesh) {
+            this.rHand.remove(this.weaponMesh);
+            this.weaponMesh = null;
+        }
+
+        this.weapon = null;
+        if (wave >= 3) {
+            const rand = Math.random();
+            if (wave >= 5 && rand < 0.1) this.weapon = 'grenade';
+            else if (wave >= 4 && rand < 0.2) this.weapon = 'gun';
+            else if (rand < 0.25) this.weapon = 'pistol';
+        }
+
+        if (this.weapon === 'pistol' || this.weapon === 'gun') {
+            const isPistol = this.weapon === 'pistol';
+            const wLen = isPistol ? 0.3 : 0.6;
+            this.weaponMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, wLen), new THREE.MeshStandardMaterial({ color: isPistol ? 0x222222 : 0x111111 }));
+            this.weaponMesh.position.set(0, -0.15, wLen / 2 - 0.1);
+            if (this.rHand) this.rHand.add(this.weaponMesh);
+        } else if (this.weapon === 'grenade') {
+            this.weaponMesh = new THREE.Mesh(new THREE.SphereGeometry(0.15), new THREE.MeshStandardMaterial({ color: 0x334433 }));
+            this.weaponMesh.position.set(0, -0.2, 0.1);
+            if (this.rHand) this.rHand.add(this.weaponMesh);
+        }
     }
 
     takeDamage(amount) {
@@ -195,17 +220,22 @@ export class Zombie {
                     this.mesh.position.y = 0;
                     this.flingVelocity = null;
                 }
-            } else if (this.deathAnimationTime !== undefined && this.deathAnimationTime < 1.0) {
+            } else if (this.deathAnimationTime !== undefined && this.deathAnimationTime < 3.0) {
                 // Smooth collapsing death animation
                 this.deathAnimationTime += delta;
-                const progress = Math.min(this.deathAnimationTime / 0.6, 1.0); // 0.6s to hit ground
 
-                // Tilt the whole zombie sideways and forward to "crumple"
-                this.mesh.rotation.z = this.initialDeathRotZ + (Math.PI / 2.5) * progress;
-                this.mesh.rotation.x = this.initialDeathRotX - 0.3 * progress;
-
-                // Sink the whole mesh down to ground level
-                this.mesh.position.y = this.deathStartY * (1 - progress);
+                if (this.deathAnimationTime < 0.6) {
+                    const progress = Math.min(this.deathAnimationTime / 0.6, 1.0); // 0.6s to crumple
+                    // Tilt the whole zombie sideways and forward to "crumple"
+                    this.mesh.rotation.z = this.initialDeathRotZ + (Math.PI / 2.5) * progress;
+                    this.mesh.rotation.x = this.initialDeathRotX - 0.3 * progress;
+                    // Lower to ground level
+                    this.mesh.position.y = this.deathStartY * (1 - progress);
+                } else {
+                    // Sink into ground for the remaining time
+                    const sinkProgress = Math.min((this.deathAnimationTime - 0.6) / 2.4, 1.0);
+                    this.mesh.position.y = -2 * sinkProgress;
+                }
 
                 // Stop leg animations
                 if (this.leftLeg) this.leftLeg.rotation.x = 0;
@@ -247,6 +277,14 @@ export class Zombie {
         } else if (distToPlayer < 25) {
             targetType = 'player';
             stopDist = 1.8;
+        }
+
+        if (this.weapon && !this.isBoss && !this.isPhantom) {
+            if (targetType === 'player' || targetType === 'house') {
+                stopDist = (this.weapon === 'grenade') ? 14 : 12;
+            } else if (targetType === 'fence') {
+                stopDist = 14.5;
+            }
         }
 
         // Smarter pathing: If targeting house but fence is in the way and gate is open, head to gate
@@ -315,7 +353,16 @@ export class Zombie {
 
             const now = performance.now() / 1000;
             if (now - this.lastAttack > this.attackInterval) {
-                onAttack(targetType === 'fence' ? 'fence' : (targetType === 'house' ? 'house' : 'player'), this.damage);
+                if (this.weapon === 'grenade') {
+                    onAttack(targetType === 'fence' ? 'fence' : (targetType === 'house' ? 'house' : 'player'), this.damage * 4);
+                    this.weapon = null;
+                    if (this.weaponMesh) { this.rHand.remove(this.weaponMesh); this.weaponMesh = null; }
+                } else if (this.weapon === 'gun' || this.weapon === 'pistol') {
+                    onAttack(targetType === 'fence' ? 'fence' : (targetType === 'house' ? 'house' : 'player'), this.weapon === 'gun' ? this.damage * 1.5 : this.damage);
+                } else {
+                    onAttack(targetType === 'fence' ? 'fence' : (targetType === 'house' ? 'house' : 'player'), this.damage);
+                }
+
                 this.lastAttack = now;
                 this.mesh.traverse(o => { if (o.material) o.material.emissive?.set(0x550000); });
                 setTimeout(() => { if (this.mesh) this.mesh.traverse(o => { if (o.material) o.material.emissive?.set(0x000000); }); }, 300);
@@ -379,6 +426,7 @@ export class ZombieManager {
 
         // Wave System
         this.currentWave = 1;
+        this.maxWave = 10;
         this.zombiesToSpawn = 10;
         this.zombiesSpawnedThisWave = 0;
         this.waveIntermission = false;
@@ -450,6 +498,12 @@ export class ZombieManager {
             if (this.intermissionTimer <= 0) {
                 this.waveIntermission = false;
                 this.currentWave++;
+
+                if (this.currentWave > this.maxWave) {
+                    window.dispatchEvent(new CustomEvent('game-won'));
+                    return;
+                }
+
                 this.zombiesToSpawn = this.getWaveZombieCount(this.currentWave);
                 this.zombiesSpawnedThisWave = 0;
                 window.dispatchEvent(new CustomEvent('wave-start', { detail: this.currentWave }));
@@ -559,13 +613,13 @@ export class ZombieManager {
         z.spawn(Math.cos(a) * r, Math.sin(a) * r, wave);
 
         // Override to boss stats
-        z.maxHealth = bossHealth;
-        z.health = bossHealth;
+        z.maxHealth = wave === this.maxWave ? 50000 : bossHealth;
+        z.health = wave === this.maxWave ? 50000 : bossHealth;
         z.speed = Math.max(0.02, 0.035 - wave * 0.001);
         z.damage = Math.floor(30 * (1 + wave * 0.2));
         z.attackInterval = Math.max(0.8, 1.6 - wave * 0.05);
         z.mesh.scale.set(bossScale, bossScale, bossScale);
-        z.bossName = bossName;
+        z.bossName = wave === this.maxWave ? 'THE FINAL DOOM' : bossName;
         z.isBoss = true;
 
         // Boss visual: dark red with glowing

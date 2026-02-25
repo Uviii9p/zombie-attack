@@ -273,6 +273,15 @@ class Game {
                 setTimeout(() => container.classList.remove('screen-shake'), 500);
             }
         });
+
+        window.addEventListener('game-won', (e) => {
+            this.isGameOver = true;
+            this.ui.announceWave('MAP CLEARED! LOADING NEXT AREA...', '#00ff00');
+            setTimeout(() => {
+                alert('Congratulations! You survived all 10 Waves! Preparing next map...');
+                location.reload();
+            }, 3000);
+        });
     }
 
     createWeather() {
@@ -380,15 +389,28 @@ class Game {
     }
 
     createHouse() {
+        if (this.house) this.scene.remove(this.house);
         this.house = new THREE.Group();
         this.houseColliders = [];
+        this.houseLights = [];
+
+        const level = this.houseLevel || 1;
+        let wallColor = 0x8c7b64;
+        let floorColor = 0x4a4339;
+        let wallMetalness = 0.1;
+        let trimColor = 0x3e3427;
+
+        if (level >= 4) { wallColor = 0xddddf0; floorColor = 0x1a1a24; wallMetalness = 0.7; trimColor = 0x00ffff; } // Neon Sci-fi Cyberpunk looks very attractive
+        else if (level >= 3) { wallColor = 0x555566; floorColor = 0x333333; wallMetalness = 0.4; trimColor = 0x222222; } // Solid concrete bunker
+        else if (level >= 2) { wallColor = 0x7a6550; floorColor = 0x40372d; wallMetalness = 0.2; trimColor = 0x332b20; } // Reinforced wood/brick
 
         // ===== MATERIALS =====
-        const wallMat = new THREE.MeshStandardMaterial({ color: 0x5a4232, roughness: 0.85 });
+        const wallMat = new THREE.MeshStandardMaterial({ color: wallColor, roughness: 0.8, metalness: wallMetalness });
         const wallInnerMat = new THREE.MeshStandardMaterial({ color: 0x6b5544, roughness: 0.9 });
-        const floorMat = new THREE.MeshStandardMaterial({ color: 0x3d2b1a, roughness: 0.95 });
+        const floorMat = new THREE.MeshStandardMaterial({ color: floorColor, roughness: 0.9 });
         const floorPlankMat = new THREE.MeshStandardMaterial({ color: 0x4a3520, roughness: 0.85 });
-        const trimMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.3, roughness: 0.6 });
+        const roofMat = new THREE.MeshStandardMaterial({ color: 0x3d352b, roughness: 0.9 });
+        const trimMat = new THREE.MeshStandardMaterial({ color: trimColor, metalness: 0.3, roughness: 0.6 });
         const windowMat = new THREE.MeshStandardMaterial({ color: 0x1a3355, emissive: 0xffaa44, emissiveIntensity: 0.8, transparent: true, opacity: 0.6 });
         const windowFrameMat = new THREE.MeshStandardMaterial({ color: 0x2a2218, roughness: 0.8 });
         const metalMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8, roughness: 0.3 });
@@ -760,15 +782,18 @@ class Game {
         const level = this.fence.level || 1;
 
         // Visual upgrades per level
-        let color, height, metalness, roughness;
-        if (level >= 4) { color = 0x666666; height = 4.0; metalness = 0.9; roughness = 0.2; }
-        else if (level >= 3) { color = 0x555555; height = 3.5; metalness = 0.7; roughness = 0.3; }
-        else if (level >= 2) { color = 0x444444; height = 3.0; metalness = 0.4; roughness = 0.5; }
+        let color, height, metalness, roughness, emissive = 0x000000, emissiveIntensity = 0;
+        if (level >= 4) { color = 0xeeeeff; height = 4.0; metalness = 1.0; roughness = 0.1; emissive = 0x00ffff; emissiveIntensity = 0.8; } // Neon Cyberpunk Fence
+        else if (level >= 3) { color = 0x888899; height = 3.5; metalness = 0.8; roughness = 0.2; emissive = 0x0055ff; emissiveIntensity = 0.4; } // High Tech Electric
+        else if (level >= 2) { color = 0x554444; height = 3.0; metalness = 0.4; roughness = 0.5; }
         else { color = 0x3a2510; height = 2.5; metalness = 0.0; roughness = 0.9; }
 
-        const postMat = new THREE.MeshStandardMaterial({ color, metalness, roughness });
+        const postMat = new THREE.MeshStandardMaterial({ color, metalness, roughness, emissive, emissiveIntensity });
         const wireMat = new THREE.MeshStandardMaterial({
-            color: 0x888888, metalness: 0.7, roughness: 0.3,
+            color: level >= 3 ? 0x00ffff : 0x888888,
+            metalness: 0.7, roughness: 0.3,
+            emissive: level >= 3 ? 0x00ffff : 0x000000,
+            emissiveIntensity: level >= 3 ? 1.5 : 0.0,
             transparent: true, opacity: 0.7, side: THREE.DoubleSide
         });
 
@@ -1181,7 +1206,11 @@ class Game {
                 ok = true;
                 syncData = { type: 'upgrade', id: 'fence' };
             } else if (id === 'house') {
-                this.houseHealth = this.maxHouseHealth; this.ui.updateHouseHealth(100);
+                this.houseLevel = (this.houseLevel || 1) + 1;
+                this.maxHouseHealth = 500 + (this.houseLevel * 300);
+                this.houseHealth = this.maxHouseHealth;
+                this.createHouse();
+                this.ui.updateHouseHealth(100);
                 this.createUpgradeSparkles(new THREE.Vector3(0, 5, 0), 0xffff00);
                 ok = true;
                 syncData = { type: 'upgrade', id: 'house' };
@@ -1215,7 +1244,7 @@ class Game {
                 ok = true;
                 syncData = { type: 'npc', id, guardType, pos: { x: pos.x, y: pos.y, z: pos.z } };
             } else if (type === 'ammo') {
-                const ammoAmounts = { 'AK47': 30, 'Sniper': 10, 'RPG': 5 };
+                const ammoAmounts = { 'AK47': 30, 'Sniper': 10, 'RPG': 5, 'Grenade': 3 };
                 const amount = ammoAmounts[id] || 0;
                 if (amount > 0) {
                     this.player.ammoReserves[id] += amount;
@@ -1254,10 +1283,13 @@ class Game {
             const fenceName = fenceNames[Math.min(this.fence.level - 1, 2)] || 'upgraded';
             if (this.ui) this.ui.announceWave(`FENCE UPGRADED`, '#00ffff');
         } else if (id === 'house') {
+            this.houseLevel = (this.houseLevel || 1) + 1;
+            this.maxHouseHealth = 500 + (this.houseLevel * 300);
             this.houseHealth = this.maxHouseHealth;
+            this.createHouse();
             this.ui.updateHouseHealth(100);
             this.createUpgradeSparkles(new THREE.Vector3(0, 5, 0), 0xffff00);
-            if (this.ui) this.ui.announceWave(`HOUSE REPAIRED`, '#ffff00');
+            if (this.ui) this.ui.announceWave(`HOUSE UPGRADED`, '#ffff00');
         } else if (type === 'npc') {
             const { guardType, pos } = data;
             if (!guardType || !pos) return;
@@ -1288,8 +1320,8 @@ class Game {
         if (e.code === 'KeyR') {
             this.triggerReload();
         }
-        if (['Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
-            const m = { 'Digit1': 'AK47', 'Digit2': 'Sniper', 'Digit3': 'RPG' };
+        if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code)) {
+            const m = { 'Digit1': 'AK47', 'Digit2': 'Sniper', 'Digit3': 'RPG', 'Digit4': 'Grenade' };
             if (this.weaponSystem.switchWeapon(m[e.code])) {
                 this.ui.updateWeapon(m[e.code]);
                 this.ui.updateAmmo(this.weaponSystem.currentWeapon.ammo, this.ui.isAdmin ? '∞' : this.player.ammoReserves[m[e.code]]);
@@ -1406,7 +1438,14 @@ class Game {
         }
         this.vehicle.update(d, this.player);
         this.vehicle.checkCollisions(this.zombieManager.zombies, this.zombieManager.bloodParticles);
-        this.weaponSystem.update(d);
+        const zombiesInPlay = this.zombieManager.zombies.filter(z => !z.isDead);
+        this.weaponSystem.update(d, zombiesInPlay, (z, dmg) => {
+            const idx = this.zombieManager.zombies.indexOf(z);
+            this.zombieManager.hitZombie(z, dmg, () => { });
+            if (this.multiplayer.isActive) this.multiplayer.sendZombieHit(idx, dmg);
+        }, () => {
+            if (this.ui) this.ui.showHitmarker();
+        });
 
         // Animate gate door
         if (this.gateDoor && (this.gateDoorAngle !== this.gateDoorTargetAngle || this.gateDoor.rotation.y !== (this.gateDoorBaseRotation || 0) + this.gateDoorAngle)) {

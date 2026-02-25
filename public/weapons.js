@@ -44,6 +44,19 @@ export class WeaponSystem {
                 type: 'explosive',
                 recoil: 0.5,
                 muzzleIntensity: 10
+            },
+            'Grenade': {
+                damage: 250,
+                fireRate: 1.5,
+                ammo: 1,
+                maxAmmo: 1,
+                reserve: 5,
+                reloadTime: 1.0,
+                range: 30, // Throwing range
+                automatic: false,
+                type: 'throwable',
+                recoil: 0.0,
+                muzzleIntensity: 0
             }
         };
 
@@ -64,9 +77,10 @@ export class WeaponSystem {
 
         this.explosions = [];
         this.explosionGeo = new THREE.SphereGeometry(3, 16, 16);
+        this.projectiles = [];
     }
 
-    update(delta) {
+    update(delta, zombies, onHit, onHitAny) {
         for (let i = this.explosions.length - 1; i >= 0; i--) {
             const exp = this.explosions[i];
             exp.scale += 0.3 * (delta * 60);
@@ -76,6 +90,41 @@ export class WeaponSystem {
                 this.scene.remove(exp.mesh);
                 exp.mesh.material.dispose();
                 this.explosions.splice(i, 1);
+            }
+        }
+
+        for (let i = this.projectiles.length - 1; i >= 0; i--) {
+            const p = this.projectiles[i];
+            p.mesh.position.add(p.velocity.clone().multiplyScalar(delta));
+            p.velocity.y -= 25.0 * delta; // gravity
+
+            // basic bounce
+            if (p.mesh.position.y <= 0.2) {
+                p.mesh.position.y = 0.2;
+                p.velocity.y *= -0.5;
+                p.velocity.x *= 0.5;
+                p.velocity.z *= 0.5;
+            }
+
+            p.life -= delta;
+            if (p.life <= 0) {
+                this.createExplosion(p.mesh.position);
+                if (zombies && onHit) {
+                    let hitAnything = false;
+                    zombies.forEach(z => {
+                        const dist = z.mesh.position.distanceTo(p.mesh.position);
+                        if (dist < 15) {
+                            onHit(z, p.weapon.damage * (1 - dist / 15));
+                            hitAnything = true;
+                        }
+                    });
+                    if (hitAnything && onHitAny) onHitAny();
+                }
+
+                this.scene.remove(p.mesh);
+                if (p.mesh.geometry) p.mesh.geometry.dispose();
+                if (p.mesh.material) p.mesh.material.dispose();
+                this.projectiles.splice(i, 1);
             }
         }
     }
@@ -143,6 +192,26 @@ export class WeaponSystem {
             this.muzzleFlash.visible = false;
             this.muzzleLight.visible = false;
         }, 50);
+
+        if (weapon.type === 'throwable') {
+            const grenadeGeo = new THREE.SphereGeometry(0.15, 8, 8);
+            const grenadeMat = new THREE.MeshStandardMaterial({ color: 0x223322, roughness: 0.8 });
+            const grenade = new THREE.Mesh(grenadeGeo, grenadeMat);
+
+            grenade.position.copy(this.camera.position).add(direction.clone().multiplyScalar(1.5));
+
+            const velocity = direction.clone().multiplyScalar(25);
+            velocity.y += 6;
+
+            this.scene.add(grenade);
+            this.projectiles.push({
+                mesh: grenade,
+                velocity: velocity,
+                life: 2.0,
+                weapon: weapon
+            });
+            return weapon;
+        }
 
         // Raycasting for bullet hit detection
         const raycaster = new THREE.Raycaster();
