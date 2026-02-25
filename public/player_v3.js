@@ -161,6 +161,13 @@ export class Player {
         this.headMesh.add(beard);
 
         this.scene.add(this.group);
+        this.shadowDisc = new THREE.Mesh(
+            new THREE.CircleGeometry(0.65, 18),
+            new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 })
+        );
+        this.shadowDisc.rotation.x = -Math.PI / 2;
+        this.shadowDisc.position.y = 0.02;
+        this.scene.add(this.shadowDisc);
 
         // Hands / First Person Arms
         this.handGroup = new THREE.Group();
@@ -325,12 +332,16 @@ export class Player {
 
     playDeathAnimation() {
         this.deathAnim = 1.5;
+        this.group.rotation.x = -1.3;
     }
 
     respawn() {
         this.group.position.set(5, 0, 5);
         this.health = 100;
         this.velocity.set(0, 0, 0);
+        this.deathAnim = 0;
+        this.hurtAnim = 0;
+        this.group.rotation.x = 0;
     }
 
     update(delta, collidables) {
@@ -338,6 +349,7 @@ export class Player {
             this.group.position.copy(this.currentVehicle.getSeatPosition());
             this.group.rotation.copy(this.currentVehicle.mesh.rotation);
             this.handGroup.visible = false;
+            if (this.shadowDisc) this.shadowDisc.visible = false;
             this.torsoMesh.visible = false;
             this.headMesh.visible = false;
             this.leftLeg.visible = false;
@@ -346,6 +358,8 @@ export class Player {
         }
 
         this.handGroup.visible = true;
+        if (this.shadowDisc) this.shadowDisc.visible = true;
+        if (this.shadowDisc) this.shadowDisc.position.set(this.group.position.x, 0.02, this.group.position.z);
         this.updateMovement(delta, collidables);
         this.updateCamera();
 
@@ -399,7 +413,7 @@ export class Player {
         this.recoilOffset = THREE.MathUtils.lerp(this.recoilOffset, 0, 0.15);
 
         if (this.reloadAnim > 0) {
-            this.reloadAnim -= delta * 2.3;
+            this.reloadAnim = Math.max(0, this.reloadAnim - delta * 2.3);
             this.gunMesh.rotation.z = Math.sin((1 - this.reloadAnim) * Math.PI * 4) * 0.18;
             this.gunMesh.rotation.x = 0.35 * (1 - this.reloadAnim);
         } else {
@@ -408,12 +422,12 @@ export class Player {
         }
 
         if (this.hurtAnim > 0) {
-            this.hurtAnim -= delta * 3;
+            this.hurtAnim = Math.max(0, this.hurtAnim - delta * 3);
             this.torsoMesh.rotation.x = -0.45 * this.hurtAnim;
         }
 
         if (this.victoryAnim > 0) {
-            this.victoryAnim -= delta;
+            this.victoryAnim = Math.max(0, this.victoryAnim - delta);
             this.rightArm.rotation.z = -1.2 + Math.sin(Date.now() * 0.02) * 0.25;
             this.leftArm.rotation.z = 1.0;
         } else {
@@ -422,7 +436,7 @@ export class Player {
         }
 
         if (this.deathAnim > 0) {
-            this.deathAnim -= delta;
+            this.deathAnim = Math.max(0, this.deathAnim - delta);
             this.group.rotation.x = THREE.MathUtils.lerp(this.group.rotation.x, -1.5, 0.08);
         } else {
             this.group.rotation.x = THREE.MathUtils.lerp(this.group.rotation.x, 0, 0.08);

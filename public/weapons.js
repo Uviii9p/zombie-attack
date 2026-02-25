@@ -78,7 +78,10 @@ export class WeaponSystem {
         this.explosions = [];
         this.explosionGeo = new THREE.SphereGeometry(3, 16, 16);
         this.projectiles = [];
+        this.projectilePool = [];
         this.tracers = [];
+        this.grenadeGeo = new THREE.SphereGeometry(0.15, 8, 8);
+        this.grenadeMat = new THREE.MeshStandardMaterial({ color: 0x223322, roughness: 0.8 });
     }
 
     update(delta, zombies, onHit, onHitAny) {
@@ -115,7 +118,7 @@ export class WeaponSystem {
                     zombies.forEach(z => {
                         const dist = z.mesh.position.distanceTo(p.mesh.position);
                         if (dist < 15) {
-                            onHit(z, p.weapon.damage * (1 - dist / 15));
+                            onHit(z, p.weapon.damage * (1 - dist / 15), { isHeadshot: false, knockback: p.velocity, point: p.mesh.position.clone() });
                             hitAnything = true;
                         }
                     });
@@ -123,8 +126,8 @@ export class WeaponSystem {
                 }
 
                 this.scene.remove(p.mesh);
-                if (p.mesh.geometry) p.mesh.geometry.dispose();
-                if (p.mesh.material) p.mesh.material.dispose();
+                p.mesh.visible = false;
+                this.projectilePool.push(p.mesh);
                 this.projectiles.splice(i, 1);
             }
         }
@@ -210,9 +213,8 @@ export class WeaponSystem {
         this.spawnTracer(flashPos, tracerEnd, this.currentWeaponKey === 'Sniper' ? 0xfff4aa : 0xffaa55);
 
         if (weapon.type === 'throwable') {
-            const grenadeGeo = new THREE.SphereGeometry(0.15, 8, 8);
-            const grenadeMat = new THREE.MeshStandardMaterial({ color: 0x223322, roughness: 0.8 });
-            const grenade = new THREE.Mesh(grenadeGeo, grenadeMat);
+            const grenade = this.projectilePool.pop() || new THREE.Mesh(this.grenadeGeo, this.grenadeMat);
+            grenade.visible = true;
 
             grenade.position.copy(this.camera.position).add(direction.clone().multiplyScalar(1.5));
 
