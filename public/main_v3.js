@@ -1615,6 +1615,9 @@ class Game {
         if (this.multiplayer.isActive) {
             this.multiplayer.sendPosition(this.player, this.weaponSystem.currentWeaponKey);
             this.multiplayer.update(d, this.camera);
+            if (window.isLobbyHost) {
+                this.multiplayer.sendZombieStates(this.zombieManager.zombies, this.zombieManager.currentWave);
+            }
         }
 
         // Voice Chat Implementation

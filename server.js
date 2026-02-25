@@ -285,6 +285,16 @@ io.on('connection', (socket) => {
         socket.to(currentRoom).emit('wave-start-sync', wave);
     });
 
+    socket.on('zombies-sync', (zData) => {
+        if (!currentRoom) return;
+        socket.to(currentRoom).emit('zombies-sync', zData);
+    });
+
+    socket.on('zombie-loot-sync', (lootData) => {
+        if (!currentRoom) return;
+        socket.to(currentRoom).emit('zombie-loot-sync', lootData);
+    });
+
     socket.on('shop-upgrade-sync', (data) => {
         if (!currentRoom) return;
         // Broadcast 'lobby-shop-upgrade-sync' to other players in the room

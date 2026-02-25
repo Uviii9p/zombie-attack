@@ -52,6 +52,48 @@ export class MultiplayerManager {
             }
         });
 
+        // Massive State Sync (Zombies)
+        this.socket.on('zombies-sync', (zData) => {
+            if (window.isLobbyHost) return; // Only clients sync to host
+            if (this.zombieManager) {
+                // Ensure array size matches
+                while (this.zombieManager.zombies.length < zData.length) {
+                    const Zombie = this.zombieManager.zombies[0]?.constructor;
+                    if (Zombie) this.zombieManager.zombies.push(new Zombie(this.zombieManager.scene));
+                    else break;
+                }
+
+                for (let i = 0; i < zData.length; i++) {
+                    let d = zData[i];
+                    let z = this.zombieManager.zombies[i];
+                    if (!z) continue;
+
+                    let isStateDead = d[0];
+
+                    if (isStateDead) {
+                        if (!z.isDead) z.die();
+                        z.mesh.visible = d[6];
+                    } else {
+                        // Must be alive in client too
+                        if (z.isDead) {
+                            z.spawn(d[1], d[3], d[8]); // x, z, wave
+                            z.isBoss = d[9];
+                            if (z.isBoss) {
+                                z.bossName = d[10];
+                                z.mesh.scale.set(d[7], d[7], d[7]);
+                            }
+                        }
+
+                        z.health = d[4];
+                        z.mesh.visible = d[6];
+                        // Smooth position snapping
+                        z.mesh.position.lerp(new THREE.Vector3(d[1], d[2], d[3]), 0.4);
+                        z.mesh.rotation.y = d[5];
+                    }
+                }
+            }
+        });
+
         console.log('[Multiplayer] Sync active');
     }
 
@@ -68,6 +110,31 @@ export class MultiplayerManager {
     sendWaveStart(wave) {
         if (!this.isActive || !this.socket) return;
         this.socket.emit('wave-start-sync', wave);
+    }
+
+    sendZombieStates(zombies, currentWave) {
+        if (!this.isActive || !this.socket || !window.isLobbyHost) return;
+
+        const now = performance.now();
+        if (now - (this.lastZombieSendTime || 0) < 100) return; // Sync 10 times a second to save bandwidth
+        this.lastZombieSendTime = now;
+
+        // Compact payload format: [isDead, x, y, z, health, ry, visible, scale, wave, isBoss, bossName]
+        let zData = zombies.map(z => [
+            z.isDead,
+            Math.round(z.mesh.position.x * 100) / 100,
+            Math.round(z.mesh.position.y * 100) / 100,
+            Math.round(z.mesh.position.z * 100) / 100,
+            z.health,
+            Math.round(z.mesh.rotation.y * 100) / 100,
+            z.mesh.visible,
+            z.mesh.scale.x,
+            currentWave,
+            z.isBoss,
+            z.bossName || ''
+        ]);
+
+        this.socket.emit('zombies-sync', zData);
     }
 
     // Send local player's position to server

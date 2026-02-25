@@ -482,58 +482,63 @@ export class ZombieManager {
             window.dispatchEvent(new CustomEvent('wave-start', { detail: this.currentWave }));
         }
 
-        // Boss spawn delay
-        if (this.bossSpawnPending) {
-            this.bossSpawnDelay -= delta;
-            if (this.bossSpawnDelay <= 0) {
-                this.bossSpawnPending = false;
-                this.spawnBoss(this.currentWave);
-            }
-        }
+        const isHost = !window.lobbySocket || window.isLobbyHost;
 
-        if (this.waveIntermission && !this.bossActive) {
-            this.intermissionTimer -= delta;
-
-            // Countdown events
-            const remaining = Math.ceil(this.intermissionTimer);
-            if (remaining > 0 && remaining <= 5) {
-                window.dispatchEvent(new CustomEvent('wave-countdown', { detail: remaining }));
+        // Wave progression + Boss Spawning logic ONLY runs on the Host
+        if (isHost) {
+            // Boss spawn delay
+            if (this.bossSpawnPending) {
+                this.bossSpawnDelay -= delta;
+                if (this.bossSpawnDelay <= 0) {
+                    this.bossSpawnPending = false;
+                    this.spawnBoss(this.currentWave);
+                }
             }
 
-            if (this.intermissionTimer <= 0) {
-                this.waveIntermission = false;
-                this.currentWave++;
+            if (this.waveIntermission && !this.bossActive) {
+                this.intermissionTimer -= delta;
 
-                if (this.currentWave > this.maxWave) {
-                    window.dispatchEvent(new CustomEvent('game-won'));
-                    return;
+                // Countdown events
+                const remaining = Math.ceil(this.intermissionTimer);
+                if (remaining > 0 && remaining <= 5) {
+                    window.dispatchEvent(new CustomEvent('wave-countdown', { detail: remaining }));
                 }
 
-                this.zombiesToSpawn = this.getWaveZombieCount(this.currentWave);
-                this.zombiesSpawnedThisWave = 0;
-                window.dispatchEvent(new CustomEvent('wave-start', { detail: this.currentWave }));
-            }
-        } else if (!this.waveIntermission && !this.bossActive) {
-            this.spawnTimer += delta;
-            const spawnBatch = Math.min(5, Math.floor(this.currentWave / 3) + 1); // Spawn more per tick at higher waves
+                if (this.intermissionTimer <= 0) {
+                    this.waveIntermission = false;
+                    this.currentWave++;
 
-            if (this.spawnTimer > this.spawnInterval && this.zombiesToSpawn > 0 && this.activeCount() < this.maxZombies) {
-                const count = Math.min(spawnBatch, this.zombiesToSpawn);
-                for (let i = 0; i < count; i++) {
-                    this.spawnZombie(this.currentWave);
-                    this.zombiesToSpawn--;
-                    this.zombiesSpawnedThisWave++;
+                    if (this.currentWave > this.maxWave) {
+                        window.dispatchEvent(new CustomEvent('game-won'));
+                        return;
+                    }
+
+                    this.zombiesToSpawn = this.getWaveZombieCount(this.currentWave);
+                    this.zombiesSpawnedThisWave = 0;
+                    window.dispatchEvent(new CustomEvent('wave-start', { detail: this.currentWave }));
                 }
-                this.spawnTimer = 0;
-                this.spawnInterval = Math.max(0.4, 4.0 - (this.currentWave * 0.18));
-            }
+            } else if (!this.waveIntermission && !this.bossActive) {
+                this.spawnTimer += delta;
+                const spawnBatch = Math.min(5, Math.floor(this.currentWave / 3) + 1); // Spawn more per tick at higher waves
 
-            // Wave cleared — trigger boss
-            if (this.zombiesToSpawn === 0 && this.activeCount() === 0 && !this.bossSpawnPending) {
-                window.dispatchEvent(new CustomEvent('wave-cleared', { detail: this.currentWave }));
-                // Spawn boss after a short dramatic delay
-                this.bossSpawnPending = true;
-                this.bossSpawnDelay = 2.0;
+                if (this.spawnTimer > this.spawnInterval && this.zombiesToSpawn > 0 && this.activeCount() < this.maxZombies) {
+                    const count = Math.min(spawnBatch, this.zombiesToSpawn);
+                    for (let i = 0; i < count; i++) {
+                        this.spawnZombie(this.currentWave);
+                        this.zombiesToSpawn--;
+                        this.zombiesSpawnedThisWave++;
+                    }
+                    this.spawnTimer = 0;
+                    this.spawnInterval = Math.max(0.4, 4.0 - (this.currentWave * 0.18));
+                }
+
+                // Wave cleared — trigger boss
+                if (this.zombiesToSpawn === 0 && this.activeCount() === 0 && !this.bossSpawnPending) {
+                    window.dispatchEvent(new CustomEvent('wave-cleared', { detail: this.currentWave }));
+                    // Spawn boss after a short dramatic delay
+                    this.bossSpawnPending = true;
+                    this.bossSpawnDelay = 2.0;
+                }
             }
         }
 
