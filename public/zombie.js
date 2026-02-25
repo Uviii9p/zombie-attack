@@ -12,8 +12,18 @@ export class Zombie {
         this.lastAttack = 0;
         this.attackInterval = 1.6;
         this.isDead = false;
+        this.isRising = false;
+        this.riseTime = 0;
         this.dropProcessed = false;
         this.deathPosition = new THREE.Vector3();
+        this.type = 'normal';
+        this.staggerTime = 0;
+        this.knockback = new THREE.Vector3();
+        this.flankDir = Math.random() > 0.5 ? 1 : -1;
+        this.pathSeed = Math.random() * Math.PI * 2;
+        this.enraged = false;
+        this.targetGroundY = 0;
+        this.modelLiftOffset = 0;
 
         this.mesh = new THREE.Group();
         // Randomize Body Size
@@ -58,12 +68,15 @@ export class Zombie {
         const head = new THREE.Mesh(new THREE.BoxGeometry(headSize, headSize, headSize), new THREE.MeshStandardMaterial({ color: 0x2c3a25 }));
         head.position.y = (1.2 * heightMultiplier) + 0.6 + (headSize / 2);
         head.castShadow = true;
+        head.userData.hitZone = 'head';
+        head.name = 'zombieHead';
         this.mesh.add(head);
 
         // Glowing Red/Yellow Eyes
         const eyeColor = Math.random() > 0.5 ? 0xff0000 : 0xffaa00;
         const eyeGeo = new THREE.SphereGeometry(headSize * 0.1, 8, 8);
         const eyeMat = new THREE.MeshBasicMaterial({ color: eyeColor });
+        this.eyeMat = eyeMat;
         const lEye = new THREE.Mesh(eyeGeo, eyeMat); lEye.position.set(-headSize * 0.3, head.position.y + headSize * 0.1, headSize * 0.51);
         const rEye = new THREE.Mesh(eyeGeo, eyeMat); rEye.position.set(headSize * 0.3, head.position.y + headSize * 0.1, headSize * 0.51);
         this.mesh.add(lEye, rEye);
@@ -97,19 +110,36 @@ export class Zombie {
         this.scene.add(this.mesh);
     }
 
-    spawn(x, z, wave = 1) {
-        this.mesh.position.set(x, 0, z);
+    spawn(x, z, wave = 1, groundMesh = null) {
+        const spawnPosition = new THREE.Vector3(x, 0, z);
+        if (groundMesh) {
+            const rayOrigin = spawnPosition.clone().add(new THREE.Vector3(0, 50, 0));
+            Zombie.spawnRaycaster.set(rayOrigin, Zombie.downVector);
+            const intersects = Zombie.spawnRaycaster.intersectObject(groundMesh, true);
+            if (intersects.length > 0) {
+                spawnPosition.y = intersects[0].point.y;
+            }
+        }
+
+        this.mesh.position.copy(spawnPosition);
         this.mesh.visible = true;
+        this.isRising = false;
+        this.riseTime = 0;
         this.mesh.rotation.x = 0;
         this.mesh.rotation.z = 0;
         this.mesh.rotation.y = Math.random() * Math.PI * 2;
         this.flingVelocity = null;
         this.deathAnimationTime = undefined;
+        this.staggerTime = 0;
+        this.knockback.set(0, 0, 0);
+        this.enraged = false;
+        this.attackRange = 2.2;
 
         // Apply Special Zombie Types based on wave
         const typeRand = Math.random();
-        if (wave >= 8 && typeRand < 0.15) {
+        if (wave >= 8 && typeRand < 0.11) {
             // GIANT: Massive HP, very slow, huge size, high damage
+            this.type = 'giant';
             this.maxHealth = 1000 + (wave * 50);
             this.speed = 0.015;
             this.damage = 60;
@@ -118,8 +148,9 @@ export class Zombie {
             this.isPhantom = false;
             this.bodyMat.transparent = false;
             this.bodyMat.opacity = 1.0;
-        } else if (wave >= 5 && typeRand < 0.35) {
+        } else if (wave >= 5 && typeRand < 0.23) {
             // RUNNER: Fast, squishy, red
+            this.type = 'runner';
             this.maxHealth = 40 + (wave * 2);
             this.speed = 0.09 + Math.random() * 0.03;
             this.damage = 5;
@@ -128,8 +159,9 @@ export class Zombie {
             this.isPhantom = false;
             this.bodyMat.transparent = false;
             this.bodyMat.opacity = 1.0;
-        } else if (wave >= 6 && typeRand > 0.85) {
+        } else if (wave >= 6 && typeRand > 0.9) {
             // PHANTOM: Translucent, fast, low damage
+            this.type = 'phantom';
             this.maxHealth = 60 + (wave * 3);
             this.speed = 0.07 + Math.random() * 0.04;
             this.damage = 8;
@@ -138,8 +170,9 @@ export class Zombie {
             this.isPhantom = true;
             this.bodyMat.transparent = true;
             this.bodyMat.opacity = 0.4;
-        } else if (wave >= 4 && typeRand < 0.5) {
+        } else if (wave >= 4 && typeRand < 0.35) {
             // TANK: Huge, slow, high damage, massive HP
+            this.type = 'tank';
             this.maxHealth = 250 + (wave * 20);
             this.speed = 0.02 + Math.random() * 0.01;
             this.damage = 35;
@@ -148,8 +181,43 @@ export class Zombie {
             this.isPhantom = false;
             this.bodyMat.transparent = false;
             this.bodyMat.opacity = 1.0;
+        } else if (wave >= 4 && typeRand < 0.55) {
+            // TOXIC: poison attacker
+            this.type = 'toxic';
+            this.maxHealth = 95 + (wave * 6);
+            this.speed = 0.05 + Math.random() * 0.02;
+            this.damage = 12 + Math.floor(wave * 0.8);
+            this.mesh.scale.set(1.0, 1.0, 1.0);
+            this.bodyMat.color.setHex(0x4fbf4f);
+            this.isPhantom = false;
+            this.bodyMat.transparent = false;
+            this.bodyMat.opacity = 1.0;
+        } else if (wave >= 3 && typeRand < 0.72) {
+            // CRAWLER: low, harder to hit
+            this.type = 'crawler';
+            this.maxHealth = 60 + (wave * 4);
+            this.speed = 0.06 + Math.random() * 0.02;
+            this.damage = 9 + Math.floor(wave * 0.6);
+            this.mesh.scale.set(1.1, 0.5, 1.1);
+            this.bodyMat.color.setHex(0x5e5148);
+            this.isPhantom = false;
+            this.bodyMat.transparent = false;
+            this.bodyMat.opacity = 1.0;
+            this.attackRange = 1.7;
+        } else if (wave >= 5 && typeRand < 0.82) {
+            // ARMORED: reduced headshot damage
+            this.type = 'armored';
+            this.maxHealth = 180 + (wave * 10);
+            this.speed = 0.032 + Math.random() * 0.01;
+            this.damage = 18 + Math.floor(wave * 0.8);
+            this.mesh.scale.set(1.2, 1.2, 1.2);
+            this.bodyMat.color.setHex(0x6b7078);
+            this.isPhantom = false;
+            this.bodyMat.transparent = false;
+            this.bodyMat.opacity = 1.0;
         } else {
             // NORMAL
+            this.type = 'normal';
             this.maxHealth = 75 + (wave * 5); // scales slowly
             this.speed = 0.04 + Math.random() * 0.02 + (wave * 0.002);
             this.damage = 10 + Math.floor(wave / 2);
@@ -162,6 +230,16 @@ export class Zombie {
         this.health = this.maxHealth;
         this.isDead = false;
         this.dropProcessed = false;
+        this.modelLiftOffset = 0;
+        this.targetGroundY = spawnPosition.y;
+
+        const box = new THREE.Box3().setFromObject(this.mesh);
+        if (isFinite(box.min.y) && isFinite(box.max.y)) {
+            const lift = Math.max(0, spawnPosition.y - box.min.y);
+            this.modelLiftOffset = lift;
+            this.mesh.position.y += lift;
+            this.targetGroundY = spawnPosition.y + lift;
+        }
 
         if (this.weaponMesh) {
             this.rHand.remove(this.weaponMesh);
@@ -189,9 +267,20 @@ export class Zombie {
         }
     }
 
-    takeDamage(amount) {
+    takeDamage(amount, hitInfo = null) {
         if (this.isDead) return false;
-        this.health -= amount;
+        let applied = amount;
+        if (this.type === 'armored' && hitInfo?.isHeadshot) applied *= 0.45;
+        if (this.type === 'armored' && !hitInfo?.isHeadshot) applied *= 0.8;
+        if (this.type === 'tank') applied *= 0.85;
+
+        this.staggerTime = Math.min(0.25, 0.08 + applied / 450);
+        if (hitInfo?.knockback) {
+            this.knockback.copy(hitInfo.knockback).multiplyScalar(Math.min(0.22, applied / 900));
+            this.knockback.y = 0;
+        }
+
+        this.health -= applied;
         if (this.health <= 0) {
             this.die();
             return true;
@@ -204,10 +293,48 @@ export class Zombie {
         // Flash effect
         this.mesh.traverse(o => { if (o.material) o.material.emissive?.set(0x330000); });
         setTimeout(() => { if (this.mesh) this.mesh.traverse(o => { if (o.material) o.material.emissive?.set(0x000000); }); }, 100);
+        for (let i = 0; i < 3; i++) {
+            const blood = new THREE.Mesh(
+                new THREE.SphereGeometry(0.06, 6, 6),
+                new THREE.MeshBasicMaterial({ color: 0x990000, transparent: true, opacity: 0.8 })
+            );
+            blood.position.copy(this.mesh.position).add(new THREE.Vector3((Math.random() - 0.5) * 0.4, 1 + Math.random() * 0.4, (Math.random() - 0.5) * 0.4));
+            this.scene.add(blood);
+            const life = 340 + Math.random() * 220;
+            setTimeout(() => { this.scene.remove(blood); blood.geometry.dispose(); blood.material.dispose(); }, life);
+        }
         audioSystem.playZombieHit();
     }
 
     update(delta, player, house, fence, onAttack, walls = []) {
+        if (this.mesh.position.y < this.targetGroundY) this.mesh.position.y = this.targetGroundY;
+
+        if (this.isRising) {
+            this.riseTime += delta;
+            this.mesh.position.y += 0.05 * (delta * 60);
+            if (this.mesh.position.y >= this.targetGroundY) {
+                this.mesh.position.y = this.targetGroundY;
+                this.isRising = false;
+            }
+            return;
+        }
+
+        if (this.staggerTime > 0) {
+            this.staggerTime -= delta;
+            this.mesh.rotation.z = Math.sin(Date.now() * 0.03) * 0.12;
+            this.mesh.position.add(this.knockback);
+            if (this.mesh.position.y < this.targetGroundY) this.mesh.position.y = this.targetGroundY;
+            this.knockback.multiplyScalar(0.85);
+            return;
+        }
+
+        // Night-time Glowing Eyes Logic
+        const hour = (Date.now() / 1000 % 120) / 120 * 24;
+        const isNight = hour < 6 || hour > 18;
+        if (this.eyeMat) {
+            this.eyeMat.opacity = isNight ? 1.0 : 0.2;
+        }
+
         if (this.isDead) {
             if (this.flingVelocity) {
                 // Physics flying animation for roadkill
@@ -216,8 +343,8 @@ export class Zombie {
                 this.flingVelocity.multiplyScalar(0.95);
                 this.mesh.rotation.x += 0.2;
                 this.mesh.rotation.y += 0.1;
-                if (this.mesh.position.y < 0) {
-                    this.mesh.position.y = 0;
+                if (this.mesh.position.y < this.targetGroundY) {
+                    this.mesh.position.y = this.targetGroundY;
                     this.flingVelocity = null;
                 }
             } else if (this.deathAnimationTime !== undefined && this.deathAnimationTime < 3.0) {
@@ -291,6 +418,9 @@ export class Zombie {
                 stopDist = 14.5;
             }
         }
+        if (this.type === 'crawler' && targetType === 'player') {
+            stopDist = 1.25;
+        }
 
         // Smarter pathing: If targeting house but fence is in the way and gate is open, head to gate
         if (targetType === 'house' && gateIsOpen && distToHouse > 14) {
@@ -305,6 +435,14 @@ export class Zombie {
         const actualTargetPos = (targetType === 'player') ? player.position.clone() :
             (targetType === 'gate') ? gatePos : new THREE.Vector3(0, 0, 0);
 
+        if (targetType === 'player' && !this.isBoss) {
+            actualTargetPos.add(new THREE.Vector3(
+                Math.cos(this.pathSeed + Date.now() * 0.0006 * this.flankDir) * 2.2,
+                0,
+                Math.sin(this.pathSeed + Date.now() * 0.0006 * this.flankDir) * 2.2
+            ));
+        }
+
         const distToTarget = targetType === 'player' ? distToPlayer :
             targetType === 'gate' ? pos.distanceTo(gatePos) : distToHouse;
 
@@ -312,8 +450,13 @@ export class Zombie {
             // Movement logic
             const dir = new THREE.Vector3().subVectors(actualTargetPos, pos).normalize();
             dir.y = 0;
+            dir.x += Math.cos(Date.now() * 0.0015 + this.pathSeed) * 0.04;
+            dir.z += Math.sin(Date.now() * 0.0015 + this.pathSeed) * 0.04;
+            dir.normalize();
 
-            const moveAmt = this.speed * delta * 60;
+            if (this.chargeTimer > 0) this.chargeTimer -= delta;
+            const chargeMul = this.chargeTimer > 0 ? 2.4 : 1;
+            const moveAmt = this.speed * chargeMul * delta * 60;
             const nextPos = pos.clone().add(dir.clone().multiplyScalar(moveAmt));
 
             // Basic Wall Collision
@@ -338,8 +481,8 @@ export class Zombie {
             }
 
             // Strict Y-axis clamping to prevent underground clipping
-            if (pos.y < 0) {
-                pos.y = 0;
+            if (pos.y < this.targetGroundY) {
+                pos.y = this.targetGroundY;
             }
 
             this.mesh.lookAt(actualTargetPos.x, pos.y, actualTargetPos.z);
@@ -363,6 +506,9 @@ export class Zombie {
 
             const now = performance.now() / 1000;
             if (now - this.lastAttack > this.attackInterval) {
+                if (this.type === 'toxic' && targetType === 'player') {
+                    onAttack('player', this.damage * 0.4);
+                }
                 if (this.weapon === 'grenade') {
                     onAttack(targetType === 'fence' ? 'fence' : (targetType === 'house' ? 'house' : 'player'), this.damage * 4);
                     this.weapon = null;
@@ -377,8 +523,8 @@ export class Zombie {
                 this.mesh.traverse(o => { if (o.material) o.material.emissive?.set(0x550000); });
                 setTimeout(() => { if (this.mesh) this.mesh.traverse(o => { if (o.material) o.material.emissive?.set(0x000000); }); }, 300);
             }
-            this.mesh.lookAt(actualTargetPos.x, 0, actualTargetPos.z);
-            this.mesh.position.y = 0;
+            this.mesh.lookAt(actualTargetPos.x, this.targetGroundY, actualTargetPos.z);
+            this.mesh.position.y = this.targetGroundY;
         }
     }
 
@@ -399,6 +545,8 @@ export class Zombie {
     // Static variable equivalent for performance
     static bloodGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
     static bloodMat = new THREE.MeshBasicMaterial({ color: 0x880000 });
+    static spawnRaycaster = new THREE.Raycaster();
+    static downVector = new THREE.Vector3(0, -1, 0);
 
     takeRoadkill(velocity, bloodParticlesArray) {
         if (this.isDead) return false;
@@ -421,9 +569,20 @@ export class Zombie {
 }
 
 export class ZombieManager {
-    constructor(scene) {
+    constructor(scene, options = {}) {
         this.scene = scene;
-        this.zombies = []; this.loots = []; this.maxZombies = 60;
+        this.isMobile = !!options.isMobile;
+        this.groundMesh = options.groundMesh || null;
+        this.zombies = []; this.loots = []; this.maxZombies = this.isMobile ? 42 : 60;
+        this.minSpawnDistance = this.isMobile ? 18 : 20;
+        this.lastPlayerPos = new THREE.Vector3(0, 0, 0);
+        this.spawnPoints = [
+            new THREE.Vector3(32, 0, -40),
+            new THREE.Vector3(-26, 0, 36),
+            new THREE.Vector3(52, 0, 22),
+            new THREE.Vector3(-45, 0, -35),
+            new THREE.Vector3(15, 0, 58)
+        ];
         this.spawnTimer = 0; this.spawnInterval = 4.0;
         this.lootGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 12);
         this.boxGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
@@ -482,6 +641,7 @@ export class ZombieManager {
     }
 
     update(delta, player, house, fence, onAttack, onKill, onLoot, walls = []) {
+        if (player) this.lastPlayerPos.copy(player.position);
         if (!this.firstWaveAnnounced) {
             this.firstWaveAnnounced = true;
             window.dispatchEvent(new CustomEvent('wave-start', { detail: this.currentWave }));
@@ -559,10 +719,35 @@ export class ZombieManager {
         // Update boss
         if (this.boss && this.bossActive) {
             this.boss.update(delta, player, house, fence, onAttack, walls);
+            if (!this.boss.enraged && this.boss.health <= this.boss.maxHealth * 0.3) {
+                this.boss.enraged = true;
+                this.boss.speed *= 1.45;
+                this.boss.damage = Math.floor(this.boss.damage * 1.5);
+                window.dispatchEvent(new CustomEvent('boss-enrage'));
+            }
 
             // Update boss health UI
             const bossRatio = Math.max(0, this.boss.health / this.boss.maxHealth);
             window.dispatchEvent(new CustomEvent('boss-health', { detail: { ratio: bossRatio, name: this.boss.bossName } }));
+
+            if (!this.boss.lastGroundSmash) this.boss.lastGroundSmash = 0;
+            if (!this.boss.lastSummon) this.boss.lastSummon = 0;
+            if (!this.boss.lastCharge) this.boss.lastCharge = 0;
+            const now = performance.now() / 1000;
+            if (now - this.boss.lastGroundSmash > 7 && this.boss.mesh.position.distanceTo(player.position) < 8) {
+                this.boss.lastGroundSmash = now;
+                onAttack('player', this.boss.damage * 1.8);
+                window.dispatchEvent(new CustomEvent('screen-shake', { detail: { intensity: 0.7, duration: 0.4 } }));
+            }
+            if (now - this.boss.lastSummon > 11) {
+                this.boss.lastSummon = now;
+                window.dispatchEvent(new CustomEvent('boss-summon', { detail: { count: this.boss.enraged ? 4 : 2, wave: this.currentWave } }));
+            }
+            if (now - this.boss.lastCharge > 9 && this.boss.mesh.position.distanceTo(player.position) > 7) {
+                this.boss.lastCharge = now;
+                this.boss.chargeTimer = 1.0;
+                window.dispatchEvent(new CustomEvent('screen-shake', { detail: { intensity: 0.35, duration: 0.25 } }));
+            }
 
             if (this.boss.isDead && !this.boss.dropProcessed) {
                 this.boss.dropProcessed = true;
@@ -610,7 +795,10 @@ export class ZombieManager {
     }
 
     getWaveZombieCount(wave) {
-        return Math.min(50, Math.floor(8 + wave * 3));
+        const cap = this.isMobile ? 36 : 50;
+        const base = this.isMobile ? 7 : 8;
+        const scale = this.isMobile ? 2.4 : 3;
+        return Math.min(cap, Math.floor(base + wave * scale));
     }
 
     spawnBoss(wave) {
@@ -623,9 +811,8 @@ export class ZombieManager {
         this.zombies.push(z);
 
         // Spawn position: far south
-        const a = Math.PI / 2 + (Math.random() - 0.5) * 0.5;
-        const r = 40;
-        z.spawn(Math.cos(a) * r, Math.sin(a) * r, wave);
+        const spawnPos = this.pickSpawnPosition(true);
+        z.spawn(spawnPos.x, spawnPos.z, wave, this.groundMesh);
 
         // Override to boss stats
         z.maxHealth = wave === this.maxWave ? 50000 : bossHealth;
@@ -634,6 +821,12 @@ export class ZombieManager {
         z.damage = Math.floor(30 * (1 + wave * 0.2));
         z.attackInterval = Math.max(0.8, 1.6 - wave * 0.05);
         z.mesh.scale.set(bossScale, bossScale, bossScale);
+        const bossBox = new THREE.Box3().setFromObject(z.mesh);
+        if (isFinite(bossBox.min.y)) {
+            const lift = Math.max(0, z.targetGroundY - bossBox.min.y);
+            z.mesh.position.y += lift;
+            z.targetGroundY += lift;
+        }
         z.bossName = wave === this.maxWave ? 'THE FINAL DOOM' : bossName;
         z.isBoss = true;
 
@@ -656,10 +849,32 @@ export class ZombieManager {
         let z = this.zombies.find(z => z.isDead && !z.mesh.visible && !z.isBoss);
         if (!z) { if (this.zombies.length < this.maxZombies) { z = new Zombie(this.scene); this.zombies.push(z); } else return; }
 
-        const a = Math.random() * Math.PI * 2;
-        const r = 35 + Math.random() * 45;
-        z.spawn(Math.cos(a) * r, Math.sin(a) * r, wave);
+        const spawnPos = this.pickSpawnPosition(false);
+        z.spawn(spawnPos.x, spawnPos.z, wave, this.groundMesh);
         z.isBoss = false;
+    }
+
+    pickSpawnPosition(preferFar = false) {
+        const playerPos = this.lastPlayerPos || new THREE.Vector3(0, 0, 0);
+        const minDist = preferFar ? this.minSpawnDistance + 12 : this.minSpawnDistance;
+        const minDistSq = minDist * minDist;
+
+        const indexed = this.spawnPoints.map((p, i) => ({ p, score: p.distanceToSquared(playerPos), i }));
+        indexed.sort((a, b) => preferFar ? b.score - a.score : a.i - b.i);
+
+        for (let i = 0; i < indexed.length; i++) {
+            const candidate = indexed[i].p;
+            if (candidate.distanceToSquared(playerPos) >= minDistSq) return candidate.clone();
+        }
+
+        for (let attempts = 0; attempts < 18; attempts++) {
+            const a = Math.random() * Math.PI * 2;
+            const r = 35 + Math.random() * 45;
+            const pos = new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r);
+            if (pos.distanceToSquared(playerPos) >= minDistSq) return pos;
+        }
+
+        return this.spawnPoints[Math.floor(Math.random() * this.spawnPoints.length)].clone();
     }
 
     spawnLoot(x, z) {
@@ -701,8 +916,8 @@ export class ZombieManager {
         window.dispatchEvent(new CustomEvent('wave-start', { detail: wave }));
     }
 
-    hitZombie(z, dmg, onKill) {
-        if (z.takeDamage(dmg)) {
+    hitZombie(z, dmg, onKill, hitInfo = null) {
+        if (z.takeDamage(dmg, hitInfo)) {
             if (onKill) onKill();
         } else {
             z.showHitEffect();

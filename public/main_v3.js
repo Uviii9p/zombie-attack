@@ -7,12 +7,16 @@ import { audioSystem } from './audio.js';
 import { WeaponSystem } from './weapons.js';
 import { GameUI } from './ui.js';
 import { Soldier } from './soldier.js';
+import { MinHeap, MaxHeap } from './heap.js';
 
 class Game {
     constructor() {
+        this.isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        if (this.isMobile) document.body.classList.add('mobile-mode');
+
         this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1500);
-        this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        this.camera = new THREE.PerspectiveCamera(this.isMobile ? 78 : 70, window.innerWidth / window.innerHeight, 0.1, 1500);
+        this.renderer = new THREE.WebGLRenderer({ antialias: !this.isMobile, powerPreference: "high-performance" });
 
         this.ui = new GameUI();
         this.player = null;
@@ -35,18 +39,47 @@ class Game {
         this.sparkles = [];
         this.isGateOpen = false;
         window.isGateOpen = false;
+        this.lookTouchState = new Map();
+        this.mobileLookSensitivity = this.isMobile ? 0.9 : 1.0;
+        this.mobileShootHeld = false;
+        this.joystickDeadZone = 18;
+        this.joystickRadius = 58;
+        this.mobileMoveInput = new THREE.Vector2(0, 0);
+        this.aimRaycaster = new THREE.Raycaster();
+        this.touchBindings = { joystickId: null, aimId: null, shootId: null };
+        this.lastLookTouchTime = 0;
+        this.mobileFrameSkip = 0;
+        this.aimDeadZone = 12;
+        this.aimRadius = 58;
+        this.mobileTapShoot = true;
+        this.mobileTapShotQueued = false;
+        this.mobileTapLast = 0;
+        this.nearestZombieHeap = new MinHeap((a, b) => a.distSq - b.distSq);
+        this.threatZombieHeap = new MaxHeap((a, b) => a.threat - b.threat);
+        this._tmpZombieCandidates = [];
+        this.timeScale = 1;
+        this.xp = 0;
+        this.level = 1;
+        this.skillPoints = 0;
+        this.playerDamageMultiplier = 1;
+        this.rage = { active: false, cooldown: 0, duration: 0 };
+        this.lightningTimer = 0;
+        this.achievements = new Set(JSON.parse(localStorage.getItem('ds_achievements') || '[]'));
+        this.skillLevels = { damage: 0, reload: 0, vitality: 0 };
 
         this.init().catch(e => console.error("Game Init Error:", e));
     }
 
     async init() {
+        this.updateLoadingProgress(10, 'Booting renderer...');
+
         // High-end Renderer Settings
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.shadowMap.type = this.isMobile ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.toneMappingExposure = 1.0;
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.toneMappingExposure = this.isMobile ? 0.95 : 1.0;
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.isMobile ? 1.3 : 2));
 
         const container = document.getElementById('game-container');
         if (container) container.prepend(this.renderer.domElement);
@@ -55,6 +88,7 @@ class Game {
         this.scene.background = new THREE.Color(0x0a0c10);
         this.scene.fog = new THREE.FogExp2(0x0a0c10, 0.005); // Reduced fog density
 
+        this.updateLoadingProgress(30, 'Preparing world...');
         this.ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // Increased ambient light
         this.scene.add(this.ambientLight);
         this.hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.4); // Add hemi light for ground
@@ -62,22 +96,29 @@ class Game {
 
         this.sun = new THREE.DirectionalLight(0xaabbff, 0.8); // Brighter moonlight
         this.sun.position.set(50, 100, 50);
-        this.sun.castShadow = true;
-        this.sun.shadow.mapSize.width = 2048; this.sun.shadow.mapSize.height = 2048;
+        this.sun.castShadow = !this.isMobile || window.innerWidth > 900;
+        this.sun.shadow.mapSize.width = this.isMobile ? 1024 : 2048;
+        this.sun.shadow.mapSize.height = this.isMobile ? 1024 : 2048;
         this.scene.add(this.sun);
 
         const groundGeo = new THREE.PlaneGeometry(2000, 2000);
-        const groundMat = new THREE.MeshStandardMaterial({ color: 0x554433, roughness: 1, metalness: 0 }); // Brighter ground
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x554433, roughness: 1, metalness: 0, side: THREE.DoubleSide }); // Brighter ground
         const ground = new THREE.Mesh(groundGeo, groundMat);
-        ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        ground.castShadow = false;
+        ground.userData.isGround = true;
+        this.groundMesh = ground;
         this.scene.add(ground);
 
+        this.updateLoadingProgress(48, 'Building defenses...');
         this.createHouse();
         this.createWatchtowers();
         this.createFence();
         this.createEnvironment();
         this.createWeather();
         this.createStars();
+        this.createAtmosphereFX();
 
         // Shake properties
         this.shakeTime = 0;
@@ -87,8 +128,10 @@ class Game {
         this.dustParticles = [];
 
         // Initialize Systems
+        this.updateLoadingProgress(64, 'Spawning systems...');
         this.player = new Player(this.scene, this.camera);
-        this.zombieManager = new ZombieManager(this.scene);
+        this.player.setLookSensitivity(this.mobileLookSensitivity);
+        this.zombieManager = new ZombieManager(this.scene, { isMobile: this.isMobile, groundMesh: this.groundMesh });
         this.vehicle = new Vehicle(this.scene);
         this.weaponSystem = new WeaponSystem(this.scene, this.camera);
 
@@ -104,11 +147,24 @@ class Game {
         if (this.ui.shopScreen) {
             this.ui.shopScreen.addEventListener('click', (e) => {
                 const btn = e.target.closest('.buy-btn');
-                if (btn) this.buy({ target: btn });
+                if (btn) {
+                    this.ui.shopScreen.querySelectorAll('.shop-item').forEach(i => i.classList.remove('selected-item'));
+                    btn.closest('.shop-item')?.classList.add('selected-item');
+                    this.buy({ target: btn });
+                }
             });
         }
+        this.decorateShopItems();
 
         if (this.ui.hudShopBtn) this.ui.hudShopBtn.onclick = () => { audioSystem.playClick(); this.toggleShop(!this.isShopOpen); };
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('mouseenter', () => audioSystem.playUiHover());
+            btn.addEventListener('click', () => {
+                btn.classList.remove('btn-click');
+                btn.offsetHeight;
+                btn.classList.add('btn-click');
+            });
+        });
 
         // Admin Panel Activation — Click title 5x on menu OR press ` key 5x rapidly
         this.adminClickCount = 0;
@@ -147,6 +203,20 @@ class Game {
             this.ui.adminPanel.classList.add('hidden');
         };
 
+        this.ui.setMobileMode(this.isMobile);
+        if (this.isMobile) {
+            const hint = document.getElementById('shop-hint');
+            if (hint) hint.textContent = 'Left joystick: Move | Right aim pad: Look | Buttons: Fire / Reload / Heal';
+            const menuHint = document.querySelector('.controls-hint');
+            if (menuHint) menuHint.innerHTML = 'Touch controls enabled.<br>Left joystick: Move | Right aim pad: Look | Fire + Reload buttons';
+        }
+        this.setupMobileControls();
+        this.enforceMobileSafetyGuards();
+        this.bindDesktopRageControl();
+        this.ui.updateXP(this.level, 0, this.skillPoints);
+        this.ui.updateRage(false, 0, 0);
+        this.applyDailyReward();
+
         this.loop();
         this.syncStats().catch(() => { });
 
@@ -155,7 +225,12 @@ class Game {
         this.cycleDuration = 120; // 2 minutes (60s day, 60s night)
 
         window.addEventListener('resize', () => this.onResize());
+        window.addEventListener('orientationchange', () => setTimeout(() => this.onResize(), 60));
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', () => this.onResize());
+        }
         window.addEventListener('keydown', (e) => this.onKey(e));
+        this.onResize();
 
         // Listen for multiplayer lobby game start
         window.addEventListener('lobby-start-game', (e) => {
@@ -180,6 +255,7 @@ class Game {
         });
 
         document.addEventListener('pointerlockchange', () => {
+            if (this.isMobile) return;
             if (this.gameStarted && !this.isGameOver) {
                 if (!document.pointerLockElement) {
                     // Pause menu automatically applies if we lose pointer lock
@@ -202,6 +278,9 @@ class Game {
             const wave = e.detail;
             this.ui.announceWave(`WAVE ${wave}`, '#ff4757');
             this.updateWeather(wave);
+            audioSystem.playWaveMusicIntensity(wave, false);
+            if (wave >= 10) this.unlockAchievement('Wave 10 Survivor', 1200);
+            if (wave >= 20) this.unlockAchievement('Wave 20 Slayer', 2600);
 
             // Sync with others if host
             if (this.multiplayer.isActive && window.isLobbyHost) {
@@ -210,6 +289,7 @@ class Game {
         });
         window.addEventListener('wave-cleared', (e) => {
             this.ui.announceWave('WAVE CLEARED', '#2ed573');
+            this.player.playVictoryPose();
 
             // Sync with others if host
             if (this.multiplayer.isActive && window.isLobbyHost) {
@@ -220,6 +300,20 @@ class Game {
         // Boss events
         window.addEventListener('boss-spawn', (e) => {
             const { name } = e.detail;
+            audioSystem.playBossRoar();
+            audioSystem.playWaveMusicIntensity(this.zombieManager.currentWave, true);
+            const crack = new THREE.Mesh(
+                new THREE.RingGeometry(1.8, 3.6, 24),
+                new THREE.MeshBasicMaterial({ color: 0x552222, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
+            );
+            crack.rotation.x = -Math.PI / 2;
+            crack.position.set(0, 0.05, 0);
+            this.scene.add(crack);
+            setTimeout(() => {
+                this.scene.remove(crack);
+                crack.geometry.dispose();
+                crack.material.dispose();
+            }, 2200);
             const bossAnnounce = document.getElementById('boss-announcement');
             if (bossAnnounce) {
                 bossAnnounce.textContent = name;
@@ -248,6 +342,18 @@ class Game {
 
         window.addEventListener('boss-defeated', (e) => {
             this.ui.announceWave('BOSS DEFEATED!', '#ffd700');
+            this.unlockAchievement('Boss Breaker', 900);
+        });
+
+        window.addEventListener('boss-enrage', () => {
+            this.ui.announceWave('BOSS ENRAGED', '#ff2222');
+            window.dispatchEvent(new CustomEvent('screen-shake', { detail: { intensity: 0.8, duration: 0.5 } }));
+        });
+        window.addEventListener('boss-summon', (e) => {
+            const count = e.detail?.count || 2;
+            const wave = e.detail?.wave || this.zombieManager.currentWave;
+            for (let i = 0; i < count; i++) this.zombieManager.spawnZombie(wave);
+            this.ui.announceWave('MINIONS SUMMONED', '#ff8844');
         });
 
         window.addEventListener('wave-countdown', (e) => {
@@ -288,6 +394,7 @@ class Game {
         // Dust particle listener
         window.addEventListener('player-run-dust', (e) => {
             if (!this.gameStarted || this.isGameOver) return;
+            if (this.isMobile && this.dustParticles.length > 28) return;
             const pos = e.detail;
             const dustGeo = new THREE.PlaneGeometry(0.5, 0.5);
             const dustMat = new THREE.MeshBasicMaterial({ color: 0x887766, transparent: true, opacity: 0.6, depthWrite: false });
@@ -303,11 +410,215 @@ class Game {
                 vz: (Math.random() - 0.5) * 0.02
             });
         });
+
+        this.updateLoadingProgress(100, 'Ready');
+        setTimeout(() => document.getElementById('loading-screen')?.classList.add('hidden'), 180);
+    }
+
+    updateLoadingProgress(percent, label) {
+        const fill = document.getElementById('loading-progress');
+        const text = document.getElementById('loading-label');
+        if (fill) fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+        if (text && label) text.textContent = label;
+    }
+
+    enforceMobileSafetyGuards() {
+        const killScroll = (e) => e.preventDefault();
+        document.body.style.overscrollBehavior = 'none';
+        document.documentElement.style.overscrollBehavior = 'none';
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 1) e.preventDefault();
+        }, { passive: false });
+        document.addEventListener('gesturestart', killScroll, { passive: false });
+        document.addEventListener('gesturechange', killScroll, { passive: false });
+        document.addEventListener('gestureend', killScroll, { passive: false });
+
+        window.addEventListener('beforeunload', (e) => {
+            if (!this.gameStarted || this.isGameOver) return;
+            e.preventDefault();
+            e.returnValue = '';
+        });
+    }
+
+    setupMobileControls() {
+        if (!this.isMobile) return;
+
+        const canvas = this.renderer.domElement;
+        const uiLayer = document.getElementById('ui-layer');
+        const joystickZone = document.getElementById('mobile-joystick-zone');
+        const joystickBase = document.getElementById('mobile-joystick-base');
+        const joystickStick = document.getElementById('mobile-joystick-stick');
+        const aimZone = document.getElementById('mobile-aim-zone');
+        const aimBase = document.getElementById('mobile-aim-base');
+        const aimStick = document.getElementById('mobile-aim-stick');
+        const shootBtn = document.getElementById('mobile-shoot-btn');
+        const reloadBtn = document.getElementById('mobile-reload-btn');
+        const healBtn = document.getElementById('mobile-heal-btn');
+        const shopBtn = document.getElementById('mobile-shop-btn');
+        const viewBtn = document.getElementById('mobile-view-btn');
+        const backpackBtn = document.getElementById('mobile-backpack-btn');
+        const flashlightBtn = document.getElementById('mobile-flashlight-btn');
+        const gateBtn = document.getElementById('mobile-gate-btn');
+        const rageBtn = document.getElementById('mobile-rage-btn');
+
+        const action = (e, fn) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (navigator.vibrate) navigator.vibrate(10);
+            fn();
+        };
+
+        healBtn?.addEventListener('touchstart', (e) => action(e, () => this.performHeal()));
+        shopBtn?.addEventListener('touchstart', (e) => action(e, () => this.toggleShop(!this.isShopOpen)));
+        viewBtn?.addEventListener('touchstart', (e) => action(e, () => {
+            this.player.toggleView();
+            this.ui.updateViewMode(this.player.viewMode);
+        }));
+        backpackBtn?.addEventListener('touchstart', (e) => action(e, () => this.toggleBackpack(!this.isBackpackOpen)));
+        flashlightBtn?.addEventListener('touchstart', (e) => action(e, () => this.player.toggleFlashlight()));
+        gateBtn?.addEventListener('touchstart', (e) => action(e, () => this.toggleGateDoor()));
+        rageBtn?.addEventListener('touchstart', (e) => action(e, () => this.activateRageMode()));
+        reloadBtn?.addEventListener('touchstart', (e) => action(e, () => this.triggerReload()));
+
+        const releaseShoot = () => {
+            this.mobileShootHeld = false;
+            if (shootBtn) shootBtn.classList.remove('pressed');
+        };
+
+        shootBtn?.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            this.mobileShootHeld = true;
+            shootBtn.classList.add('pressed');
+            this.touchBindings.shootId = e.changedTouches[0]?.identifier ?? null;
+            if (navigator.vibrate) navigator.vibrate(12);
+        }, { passive: false });
+        shootBtn?.addEventListener('touchend', (e) => { e.preventDefault(); releaseShoot(); }, { passive: false });
+        shootBtn?.addEventListener('touchcancel', (e) => { e.preventDefault(); releaseShoot(); }, { passive: false });
+
+        const setJoystickVisual = (active, dx = 0, dy = 0) => {
+            joystickZone?.classList.toggle('active', active);
+            if (joystickBase) joystickBase.style.opacity = active ? '1' : '0.45';
+            if (joystickStick) joystickStick.style.transform = `translate(${dx}px, ${dy}px)`;
+        };
+        const setAimVisual = (active, dx = 0, dy = 0) => {
+            aimZone?.classList.toggle('active', active);
+            if (aimBase) aimBase.style.opacity = active ? '1' : '0.45';
+            if (aimStick) aimStick.style.transform = `translate(${dx}px, ${dy}px)`;
+        };
+
+        const inLeftControl = (x, y) => x < window.innerWidth * 0.45 && y > window.innerHeight * 0.36;
+        const inRightControl = (x, y) => x > window.innerWidth * 0.55 && y > window.innerHeight * 0.25;
+        const queueTapShot = () => {
+            this.mobileTapShotQueued = true;
+            if (navigator.vibrate) navigator.vibrate(6);
+        };
+
+        const handleTouchStart = (e) => {
+            e.preventDefault();
+            if (!this.gameStarted || this.isGameOver || this.isShopOpen || this.isBackpackOpen || this.isSettingsOpen) return;
+
+            for (const touch of e.changedTouches) {
+                const x = touch.clientX;
+                const y = touch.clientY;
+                if (!this.touchBindings.joystickId && inLeftControl(x, y)) {
+                    this.touchBindings.joystickId = touch.identifier;
+                    this.lookTouchState.set(touch.identifier, { x, y, startX: x, startY: y });
+                    joystickZone?.classList.add('fade-in');
+                    continue;
+                }
+
+                if (!this.touchBindings.aimId && inRightControl(x, y)) {
+                    this.touchBindings.aimId = touch.identifier;
+                    this.lookTouchState.set(touch.identifier, { x, y, startX: x, startY: y });
+                    const now = performance.now();
+                    if (this.mobileTapShoot && now - this.mobileTapLast < 260) queueTapShot();
+                    this.mobileTapLast = now;
+                    continue;
+                }
+
+                if (this.mobileTapShoot && x > window.innerWidth * 0.5) {
+                    const now = performance.now();
+                    if (now - this.mobileTapLast < 280) queueTapShot();
+                    this.mobileTapLast = now;
+                }
+            }
+        };
+
+        const handleTouchMove = (e) => {
+            e.preventDefault();
+            for (const touch of e.changedTouches) {
+                const state = this.lookTouchState.get(touch.identifier);
+                if (!state) continue;
+
+                if (touch.identifier === this.touchBindings.joystickId) {
+                    const dx = touch.clientX - state.startX;
+                    const dy = touch.clientY - state.startY;
+                    const dist = Math.hypot(dx, dy);
+                    const limited = Math.min(dist, this.joystickRadius);
+                    const nx = dist > 0 ? dx / dist : 0;
+                    const ny = dist > 0 ? dy / dist : 0;
+                    const vizX = nx * limited;
+                    const vizY = ny * limited;
+                    setJoystickVisual(true, vizX, vizY);
+
+                    if (dist > this.joystickDeadZone) {
+                        const n = (dist - this.joystickDeadZone) / (this.joystickRadius - this.joystickDeadZone);
+                        this.mobileMoveInput.set(nx * Math.min(1, n), ny * Math.min(1, n));
+                    } else {
+                        this.mobileMoveInput.set(0, 0);
+                    }
+                } else if (touch.identifier === this.touchBindings.aimId) {
+                    const dx = touch.clientX - state.x;
+                    const dy = touch.clientY - state.y;
+                    this.lastLookTouchTime = performance.now();
+                    this.player.applyLookDelta(dx, dy, 0.003);
+
+                    const ax = touch.clientX - state.startX;
+                    const ay = touch.clientY - state.startY;
+                    const ad = Math.hypot(ax, ay);
+                    const lim = Math.min(ad, this.aimRadius);
+                    const anx = ad > 0 ? ax / ad : 0;
+                    const any = ad > 0 ? ay / ad : 0;
+                    const vx = anx * lim;
+                    const vy = any * lim;
+                    setAimVisual(true, vx, vy);
+                }
+                state.x = touch.clientX;
+                state.y = touch.clientY;
+            }
+        };
+
+        const handleTouchEnd = (e) => {
+            e.preventDefault();
+            for (const touch of e.changedTouches) {
+                if (touch.identifier === this.touchBindings.joystickId) {
+                    this.touchBindings.joystickId = null;
+                    this.mobileMoveInput.set(0, 0);
+                    this.player.clearTouchMove();
+                    joystickZone?.classList.remove('fade-in');
+                    setJoystickVisual(false, 0, 0);
+                }
+                if (touch.identifier === this.touchBindings.aimId) {
+                    this.touchBindings.aimId = null;
+                    setAimVisual(false, 0, 0);
+                }
+                if (touch.identifier === this.touchBindings.shootId) releaseShoot();
+                this.lookTouchState.delete(touch.identifier);
+            }
+        };
+
+        canvas.style.touchAction = 'none';
+        canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+        canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+        canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+        canvas.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+        uiLayer?.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+        uiLayer?.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
     }
 
     createWeather() {
         this.rainGeo = new THREE.BufferGeometry();
-        const rainCount = 15000;
+        const rainCount = this.isMobile ? 6000 : 15000;
         const rainPos = [];
         for (let i = 0; i < rainCount; i++) {
             rainPos.push(
@@ -330,7 +641,7 @@ class Game {
 
     createStars() {
         const starGeo = new THREE.BufferGeometry();
-        const starCount = 5000;
+        const starCount = this.isMobile ? 2200 : 5000;
         const starPos = [];
         for (let i = 0; i < starCount; i++) {
             const r = 400 + Math.random() * 400;
@@ -346,6 +657,19 @@ class Game {
         const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 0.8, transparent: true });
         this.stars = new THREE.Points(starGeo, starMat);
         this.scene.add(this.stars);
+    }
+
+    createAtmosphereFX() {
+        const count = this.isMobile ? 80 : 150;
+        const geom = new THREE.BufferGeometry();
+        const pos = [];
+        for (let i = 0; i < count; i++) {
+            pos.push((Math.random() - 0.5) * 180, 1 + Math.random() * 14, (Math.random() - 0.5) * 180);
+        }
+        geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        const mat = new THREE.PointsMaterial({ color: 0xff6633, size: this.isMobile ? 0.45 : 0.6, transparent: true, opacity: 0.6 });
+        this.fireParticles = new THREE.Points(geom, mat);
+        this.scene.add(this.fireParticles);
     }
 
     updateWeather(wave) {
@@ -385,7 +709,14 @@ class Game {
     start() {
         this.gameStarted = true;
         this.ui.hideMenu();
-        this.renderer.domElement.requestPointerLock();
+        if (!this.isMobile) {
+            this.renderer.domElement.requestPointerLock();
+        } else {
+            document.documentElement.requestFullscreen?.().catch(() => { });
+            if (screen.orientation?.lock) {
+                screen.orientation.lock('landscape').catch(() => { });
+            }
+        }
     }
 
     toggleSettings(show) {
@@ -395,9 +726,17 @@ class Game {
 
     saveSettings() {
         const view = this.ui.viewSelect.value;
+        const graphics = this.ui.graphicsSelect?.value || 'high';
         this.player.viewMode = view;
+        const useLow = graphics === 'low' || this.isMobile;
+        this.renderer.shadowMap.enabled = !useLow;
+        if (this.sun) this.sun.castShadow = !useLow;
+        if (this.rain?.material) this.rain.material.size = useLow ? 0.08 : 0.1;
+        if (this.stars?.material) this.stars.material.size = useLow ? 0.55 : 0.8;
+        this.mobileLookSensitivity = useLow ? 0.78 : 1.0;
+        this.player.setLookSensitivity(this.mobileLookSensitivity);
         this.toggleSettings(false);
-        this.renderer.domElement.requestPointerLock();
+        if (!this.isMobile) this.renderer.domElement.requestPointerLock();
     }
 
     leaveGame() {
@@ -1118,7 +1457,7 @@ class Game {
     }
 
     createUpgradeSparkles(pos, color) {
-        const count = 30;
+        const count = this.isMobile ? 16 : 30;
         const geo = new THREE.BufferGeometry();
         const posArray = [];
         for (let i = 0; i < count; i++) {
@@ -1141,7 +1480,7 @@ class Game {
         const envGroup = new THREE.Group();
 
         // Bushes
-        const bushCount = 100;
+        const bushCount = this.isMobile ? 55 : 100;
         const bushGeo = new THREE.SphereGeometry(1.2, 7, 7);
         const bushMat = new THREE.MeshStandardMaterial({ color: 0x474a38, roughness: 1.0 });
 
@@ -1153,12 +1492,12 @@ class Game {
             bush.position.set(x, 0.4, z);
             bush.scale.set(1, 0.6 + Math.random() * 0.4, 1);
             bush.rotation.y = Math.random() * Math.PI;
-            bush.castShadow = true; bush.receiveShadow = true;
+            bush.castShadow = !this.isMobile; bush.receiveShadow = true;
             envGroup.add(bush);
         }
 
         // Cacti
-        const cactiCount = 80;
+        const cactiCount = this.isMobile ? 45 : 80;
         const cactusGeo = new THREE.CylinderGeometry(0.3, 0.4, 2.5, 8);
         const cactusMat = new THREE.MeshStandardMaterial({ color: 0x2e3d1c, roughness: 0.8 });
 
@@ -1184,7 +1523,7 @@ class Game {
                 cactus.add(arm2);
             }
 
-            cactus.castShadow = true; cactus.receiveShadow = true;
+            cactus.castShadow = !this.isMobile; cactus.receiveShadow = true;
             envGroup.add(cactus);
         }
 
@@ -1229,6 +1568,13 @@ class Game {
             let ok = false;
             let syncData = null;
             if (type === 'weapon') {
+                const unlockReq = { Sniper: 2, Grenade: 3, RPG: 4 };
+                const neededLevel = unlockReq[id] || 1;
+                if (this.level < neededLevel) {
+                    this.ui.announceWave(`UNLOCKS AT LEVEL ${neededLevel}`, '#ff6666');
+                    audioSystem.playError();
+                    return;
+                }
                 if (this.weaponSystem.switchWeapon(id)) { ok = true; this.ui.updateWeapon(id); }
             } else if (type === 'upgrade') {
                 if (id === 'armor') {
@@ -1343,36 +1689,7 @@ class Game {
         if (e.code === 'Tab') { e.preventDefault(); audioSystem.playClick(); this.toggleBackpack(!this.isBackpackOpen); }
         if (e.code === 'Escape' && this.isSettingsOpen) { audioSystem.playClick(); this.toggleSettings(false); }
         if (e.code === 'KeyH') {
-            if (this.player && this.player.tryHeal()) {
-                if (this.ui) {
-                    this.ui.updateMedkits(this.player.medkits);
-                    this.ui.updatePlayerHealth((this.player.health / this.player.maxHealth) * 100);
-
-                    // Floating Text Feedback
-                    const floatText = document.createElement('div');
-                    floatText.textContent = '+50 HP';
-                    floatText.style.position = 'absolute';
-                    floatText.style.left = '50%'; floatText.style.top = '40%';
-                    floatText.style.transform = 'translate(-50%, -50%)';
-                    floatText.style.color = '#2ecc71';
-                    floatText.style.fontWeight = '900';
-                    floatText.style.fontFamily = `'Orbitron', sans-serif`;
-                    floatText.style.fontSize = '3rem';
-                    floatText.style.textShadow = '0 0 20px #2ecc71, 0 0 40px #2ecc71';
-                    floatText.style.zIndex = '2000';
-                    floatText.style.pointerEvents = 'none';
-                    floatText.style.transition = 'all 1s ease-out';
-                    document.body.appendChild(floatText);
-
-                    // Trigger CSS transition animation
-                    setTimeout(() => {
-                        floatText.style.transform = 'translate(-50%, -150%) scale(1.5)';
-                        floatText.style.opacity = '0';
-                    }, 50);
-
-                    setTimeout(() => floatText.remove(), 1050);
-                }
-            }
+            this.performHeal();
         }
         if (e.code === 'KeyV') { audioSystem.playClick(); this.player.toggleView(); this.ui.updateViewMode(this.player.viewMode); }
         if (e.code === 'KeyE') {
@@ -1399,6 +1716,279 @@ class Game {
         }
         if (e.code === 'KeyF') { audioSystem.playClick(); this.player.toggleFlashlight(); }
         if (e.code === 'KeyX') { this.toggleGateDoor(); }
+        if (e.code === 'KeyQ') { this.activateRageMode(); }
+        if (e.code === 'KeyK') { this.openSkillTree(); }
+    }
+
+    performHeal() {
+        if (!(this.player && this.player.tryHeal())) return false;
+        if (this.ui) {
+            this.ui.updateMedkits(this.player.medkits);
+            this.ui.updatePlayerHealth((this.player.health / this.player.maxHealth) * 100);
+            document.body.classList.toggle('critical-health', (this.player.health / this.player.maxHealth) < 0.28);
+            this.startHealCooldown();
+
+            const floatText = document.createElement('div');
+            floatText.textContent = '+50 HP';
+            floatText.style.position = 'absolute';
+            floatText.style.left = '50%'; floatText.style.top = '40%';
+            floatText.style.transform = 'translate(-50%, -50%)';
+            floatText.style.color = '#2ecc71';
+            floatText.style.fontWeight = '900';
+            floatText.style.fontFamily = `'Orbitron', sans-serif`;
+            floatText.style.fontSize = '3rem';
+            floatText.style.textShadow = '0 0 20px #2ecc71, 0 0 40px #2ecc71';
+            floatText.style.zIndex = '2000';
+            floatText.style.pointerEvents = 'none';
+            floatText.style.transition = 'all 1s ease-out';
+            document.body.appendChild(floatText);
+            setTimeout(() => {
+                floatText.style.transform = 'translate(-50%, -150%) scale(1.5)';
+                floatText.style.opacity = '0';
+            }, 50);
+            setTimeout(() => floatText.remove(), 1050);
+        }
+        return true;
+    }
+
+    startHealCooldown() {
+        const healBtn = document.getElementById('mobile-heal-btn');
+        if (!healBtn) return;
+        healBtn.classList.remove('cooldown');
+        healBtn.offsetHeight;
+        healBtn.classList.add('cooldown');
+        setTimeout(() => healBtn.classList.remove('cooldown'), 3050);
+    }
+
+    bindDesktopRageControl() {
+        const rageBtn = document.getElementById('rage-btn');
+        if (!rageBtn) return;
+        rageBtn.addEventListener('click', () => this.activateRageMode());
+    }
+
+    activateRageMode() {
+        if (this.rage.active || this.rage.cooldown > 0) return false;
+        this.rage.active = true;
+        this.rage.duration = 8;
+        this.rage.cooldown = 25;
+        this.playerDamageMultiplier = 1.8;
+        this.ui.announceWave('RAGE MODE ACTIVATED', '#ff3333');
+        window.dispatchEvent(new CustomEvent('screen-shake', { detail: { intensity: 0.35, duration: 0.3 } }));
+        return true;
+    }
+
+    showDamageNumber(worldPos, amount, headshot = false) {
+        if (!worldPos) return;
+        const v = worldPos.clone().project(this.camera);
+        if (v.z > 1) return;
+        const x = (v.x * 0.5 + 0.5) * window.innerWidth;
+        const y = (-v.y * 0.5 + 0.5) * window.innerHeight;
+        const el = document.createElement('div');
+        el.className = 'damage-number';
+        el.textContent = `${Math.round(amount)}`;
+        if (headshot) el.classList.add('headshot');
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        document.body.appendChild(el);
+        setTimeout(() => el.classList.add('float'), 0);
+        setTimeout(() => el.remove(), 650);
+    }
+
+    addXP(amount) {
+        if (!amount) return;
+        this.xp += amount;
+        let need = 100 + (this.level - 1) * 45;
+        while (this.xp >= need) {
+            this.xp -= need;
+            this.level += 1;
+            this.skillPoints += 1;
+            this.ui.announceWave(`LEVEL UP ${this.level}!`, '#33d6ff');
+            need = 100 + (this.level - 1) * 45;
+        }
+        const pct = Math.max(0, Math.min(100, (this.xp / need) * 100));
+        this.ui.updateXP(this.level, pct, this.skillPoints);
+    }
+
+    openSkillTree() {
+        if (this.skillPoints <= 0) {
+            this.ui.announceWave('NO SKILL POINTS', '#ff6666');
+            return;
+        }
+        const pick = prompt('Skill Tree: 1 Damage, 2 Reload Speed, 3 Health');
+        if (!pick) return;
+        if (pick === '1') {
+            this.skillLevels.damage += 1;
+            this.playerDamageMultiplier += 0.08;
+        } else if (pick === '2') {
+            this.skillLevels.reload += 1;
+            Object.values(this.weaponSystem.weapons).forEach(w => w.reloadTime = Math.max(0.45, w.reloadTime * 0.95));
+        } else if (pick === '3') {
+            this.skillLevels.vitality += 1;
+            this.player.maxHealth += 10;
+            this.player.health = Math.min(this.player.maxHealth, this.player.health + 10);
+            this.ui.updatePlayerHealth((this.player.health / this.player.maxHealth) * 100);
+        } else {
+            return;
+        }
+        this.skillPoints -= 1;
+        this.ui.announceWave('SKILL UPGRADED', '#66e0ff');
+        const need = 100 + (this.level - 1) * 45;
+        const pct = Math.max(0, Math.min(100, (this.xp / need) * 100));
+        this.ui.updateXP(this.level, pct, this.skillPoints);
+    }
+
+    unlockAchievement(name, coinReward = 0) {
+        if (this.achievements.has(name)) return;
+        this.achievements.add(name);
+        localStorage.setItem('ds_achievements', JSON.stringify([...this.achievements]));
+        this.ui.announceWave(`ACHIEVEMENT: ${name}`, '#66e0ff');
+        if (coinReward > 0) this.updateCoins(coinReward);
+        this.addXP(120);
+    }
+
+    applyDailyReward() {
+        const key = 'ds_daily_reward';
+        const today = new Date().toISOString().slice(0, 10);
+        const last = localStorage.getItem(key);
+        if (last === today) return;
+        localStorage.setItem(key, today);
+        this.updateCoins(500);
+        this.addXP(80);
+        this.ui.announceWave('DAILY REWARD +500 COINS', '#2ed573');
+    }
+
+    decorateShopItems() {
+        if (!this.ui.shopScreen) return;
+        const profiles = {
+            AK47: { dmg: 55, spd: 70, acc: 62, rarity: 'common' },
+            Sniper: { dmg: 95, spd: 28, acc: 98, rarity: 'epic' },
+            RPG: { dmg: 100, spd: 18, acc: 45, rarity: 'legendary' },
+            Grenade: { dmg: 88, spd: 25, acc: 40, rarity: 'rare' },
+            armor: { dmg: 10, spd: 0, acc: 0, rarity: 'rare' },
+            fence: { dmg: 0, spd: 0, acc: 0, rarity: 'common' },
+            house: { dmg: 0, spd: 0, acc: 0, rarity: 'common' }
+        };
+
+        this.ui.shopScreen.querySelectorAll('.shop-item').forEach((item) => {
+            if (item.querySelector('.rarity-chip')) return;
+            const id = item.dataset.id;
+            const p = profiles[id] || { dmg: 20, spd: 20, acc: 20, rarity: 'common' };
+            const unlockReq = { Sniper: 2, Grenade: 3, RPG: 4 };
+            const chip = document.createElement('div');
+            chip.className = `rarity-chip rarity-${p.rarity}`;
+            chip.textContent = p.rarity.toUpperCase();
+            item.prepend(chip);
+            if (unlockReq[id]) {
+                const lock = document.createElement('div');
+                lock.className = 'unlock-req';
+                lock.textContent = `UNLOCK L${unlockReq[id]}`;
+                item.appendChild(lock);
+            }
+            if (item.dataset.type === 'weapon') {
+                const bars = document.createElement('div');
+                bars.className = 'stat-bars';
+                bars.innerHTML = `
+                    <div class="stat-bar"><span>Dmg</span><i style="width:${p.dmg}%"></i></div>
+                    <div class="stat-bar"><span>Spd</span><i style="width:${p.spd}%"></i></div>
+                    <div class="stat-bar"><span>Acc</span><i style="width:${p.acc}%"></i></div>
+                `;
+                item.appendChild(bars);
+            }
+        });
+    }
+
+    buildZombiePriorityHeaps(zombies) {
+        this.nearestZombieHeap.clear();
+        this.threatZombieHeap.clear();
+        const p = this.player.group.position;
+        for (let i = 0; i < zombies.length; i++) {
+            const z = zombies[i];
+            if (!z || z.isDead || !z.mesh?.visible) continue;
+            const dx = z.mesh.position.x - p.x;
+            const dy = z.mesh.position.y - p.y;
+            const dz = z.mesh.position.z - p.z;
+            const distSq = (dx * dx) + (dy * dy) + (dz * dz);
+            const threat = z.health / Math.max(4, distSq);
+            const entry = { zombie: z, distSq, threat };
+            this.nearestZombieHeap.push(entry);
+            this.threatZombieHeap.push(entry);
+        }
+    }
+
+    getZombieCandidates(limit = 10) {
+        this._tmpZombieCandidates.length = 0;
+        const seen = new Set();
+        const nearTake = Math.max(4, Math.floor(limit * 0.65));
+        let count = 0;
+        while (!this.nearestZombieHeap.isEmpty() && count < nearTake) {
+            const z = this.nearestZombieHeap.pop().zombie;
+            if (!seen.has(z)) {
+                seen.add(z);
+                this._tmpZombieCandidates.push(z);
+                count++;
+            }
+        }
+        while (!this.threatZombieHeap.isEmpty() && count < limit) {
+            const z = this.threatZombieHeap.pop().zombie;
+            if (!seen.has(z)) {
+                seen.add(z);
+                this._tmpZombieCandidates.push(z);
+                count++;
+            }
+        }
+        return this._tmpZombieCandidates;
+    }
+
+    isAimingAtZombie(zombies) {
+        if (!this.isMobile || !zombies || zombies.length === 0) return false;
+        const candidates = this.getZombieCandidates(9);
+        const meshes = [];
+        candidates.forEach((z) => {
+            z.mesh.traverse((child) => {
+                if (child.isMesh) meshes.push(child);
+            });
+        });
+        if (meshes.length === 0) return false;
+        this.aimRaycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
+        const hit = this.aimRaycaster.intersectObjects(meshes, false);
+        return hit.length > 0;
+    }
+
+    applyMobileAimAssist(zombies, delta) {
+        if (!this.isMobile || !zombies || zombies.length === 0) return;
+        const candidates = this.getZombieCandidates(14);
+        const forward = new THREE.Vector3();
+        this.camera.getWorldDirection(forward);
+        let best = null;
+        let bestScore = Infinity;
+
+        candidates.forEach((z) => {
+            if (!z || z.isDead || !z.mesh?.visible) return;
+            const target = z.mesh.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+            const toTarget = target.sub(this.camera.position);
+            const dist = toTarget.length();
+            if (dist < 1 || dist > 65) return;
+            const dir = toTarget.normalize();
+            const dot = forward.dot(dir);
+            if (dot < 0.86) return;
+            const score = (1 - dot) + dist * 0.0025;
+            if (score < bestScore) {
+                bestScore = score;
+                best = dir;
+            }
+        });
+
+        if (!best) return;
+        const desiredYaw = Math.atan2(best.x, -best.z);
+        const desiredPitch = Math.asin(THREE.MathUtils.clamp(best.y, -0.95, 0.95));
+
+        const yawDelta = THREE.MathUtils.euclideanModulo(desiredYaw - this.player.mouseRotation.y + Math.PI, Math.PI * 2) - Math.PI;
+        const pitchDelta = desiredPitch - this.player.mouseRotation.x;
+
+        const assistStrength = Math.min(1, delta * 4.5);
+        this.player.mouseRotation.y += yawDelta * assistStrength;
+        this.player.mouseRotation.x += pitchDelta * assistStrength;
+        this.player.mouseRotation.x = THREE.MathUtils.clamp(this.player.mouseRotation.x, -1.25, 1.25);
     }
 
     triggerReload() {
@@ -1408,6 +1998,7 @@ class Game {
 
         if (!this.weaponSystem.isReloading && (res > 0 || this.ui.isAdmin) && w.ammo < w.maxAmmo) {
             this.weaponSystem.reload();
+            this.player.playReloadAnimation();
             setTimeout(() => {
                 const need = w.maxAmmo - w.ammo;
                 const fill = this.ui.isAdmin ? need : Math.min(need, this.player.ammoReserves[key]);
@@ -1420,7 +2011,22 @@ class Game {
 
     toggleShop(s) { this.isShopOpen = s; this.ui.toggleShop(s); }
     toggleBackpack(s) { this.isBackpackOpen = s; this.ui.toggleBackpack(s, this.player); }
-    onResize() { this.camera.aspect = window.innerWidth / window.innerHeight; this.camera.updateProjectionMatrix(); this.renderer.setSize(window.innerWidth, window.innerHeight); }
+    onResize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+
+        const portrait = window.innerHeight > window.innerWidth;
+        document.body.classList.toggle('portrait-mode', portrait);
+        if (this.isMobile) {
+            const mobilePixelRatio = portrait ? 1.05 : 1.25;
+            this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobilePixelRatio));
+        }
+
+        const shortEdge = Math.min(window.innerWidth, window.innerHeight);
+        const uiScale = this.isMobile ? Math.max(0.86, Math.min(1.35, shortEdge / 520)) : 1;
+        document.documentElement.style.setProperty('--ui-scale', uiScale.toFixed(2));
+    }
 
     damage(t, a) {
         if (this.ui.isAdmin) return; // God Mode
@@ -1437,6 +2043,9 @@ class Game {
                 }
             }
             this.ui.updatePlayerHealth((this.player.health / this.player.maxHealth) * 100);
+            const critical = (this.player.health / this.player.maxHealth) < 0.28;
+            document.body.classList.toggle('critical-health', critical);
+            if (critical && this.isMobile && navigator.vibrate) navigator.vibrate([8, 30, 8]);
         } else if (t === 'fence') {
             this.fence.health -= a; this.ui.updateFenceHealth((this.fence.health / this.fence.maxHealth) * 100);
             if (this.fence.health <= 0 && this.fence.mesh.parent) this.scene.remove(this.fence.mesh);
@@ -1446,7 +2055,11 @@ class Game {
         }
     }
 
-    gameOver() { this.isGameOver = true; this.ui.showGameOver(this.player.coins); }
+    gameOver() {
+        this.isGameOver = true;
+        this.player.playDeathAnimation();
+        this.ui.showGameOver(this.player.coins);
+    }
 
     updateDayNight(delta) {
         this.cycleTime = (this.cycleTime + delta) % this.cycleDuration;
@@ -1488,8 +2101,22 @@ class Game {
 
     loop() {
         requestAnimationFrame(() => this.loop());
-        const d = 0.016;
+        if (this.timeScale < 1) this.timeScale = Math.min(1, this.timeScale + 0.035);
+        const d = 0.016 * this.timeScale;
+
+        if (this.rage.cooldown > 0) this.rage.cooldown = Math.max(0, this.rage.cooldown - d);
+        if (this.rage.active) {
+            this.rage.duration -= d;
+            if (this.rage.duration <= 0) {
+                this.rage.active = false;
+                this.playerDamageMultiplier = 1;
+            }
+        }
+        this.ui.updateRage(this.rage.active, this.rage.cooldown, this.rage.duration);
         this.updateDayNight(d);
+        if (this.player?.health < 30 && Math.random() < 0.08) audioSystem.playHeartbeatLowHp();
+        if (Math.random() < 0.003) audioSystem.playNoise(0.5, 'pink', 0.05); // wind gust
+        if (Math.random() < 0.002) audioSystem.playZombieGroan(); // distant scream
 
         if (!this.gameStarted || this.isGameOver || this.isShopOpen || this.isBackpackOpen || this.isSettingsOpen) {
             this.renderer.render(this.scene, this.camera);
@@ -1497,24 +2124,49 @@ class Game {
         }
 
         if (this.rain && this.rain.visible) {
-            const positions = this.rain.geometry.attributes.position.array;
-            for (let i = 1; i < positions.length; i += 3) {
-                positions[i] -= 2.5; // drop speed
-                if (positions[i] < 0) {
-                    positions[i] = 200;
+            if (!this.isMobile || (this.mobileFrameSkip++ % 2 === 0)) {
+                const positions = this.rain.geometry.attributes.position.array;
+                for (let i = 1; i < positions.length; i += 3) {
+                    positions[i] -= 2.5; // drop speed
+                    if (positions[i] < 0) {
+                        positions[i] = 200;
+                    }
                 }
+                this.rain.geometry.attributes.position.needsUpdate = true;
             }
-            this.rain.geometry.attributes.position.needsUpdate = true;
+        }
+
+        if (this.fireParticles) {
+            const arr = this.fireParticles.geometry.attributes.position.array;
+            for (let i = 1; i < arr.length; i += 3) {
+                arr[i] += 0.05;
+                if (arr[i] > 18) arr[i] = 1;
+            }
+            this.fireParticles.geometry.attributes.position.needsUpdate = true;
+            this.fireParticles.material.opacity = 0.35 + Math.sin(Date.now() * 0.006) * 0.25;
+        }
+
+        this.lightningTimer -= d;
+        if (this.lightningTimer <= 0 && Math.random() < 0.02) {
+            this.lightningTimer = 5 + Math.random() * 8;
+            const prev = this.ambientLight.intensity;
+            this.ambientLight.intensity = prev + 0.8;
+            setTimeout(() => { this.ambientLight.intensity = prev; }, 120);
         }
         this.vehicle.update(d, this.player);
         this.vehicle.checkCollisions(this.zombieManager.zombies, this.zombieManager.bloodParticles);
         const zombiesInPlay = this.zombieManager.zombies.filter(z => !z.isDead);
-        this.weaponSystem.update(d, zombiesInPlay, (z, dmg) => {
+        this.weaponSystem.update(d, zombiesInPlay, (z, dmg, hitInfo) => {
             const idx = this.zombieManager.zombies.indexOf(z);
-            this.zombieManager.hitZombie(z, dmg, () => { });
+            const finalDmg = dmg * this.playerDamageMultiplier;
+            this.zombieManager.hitZombie(z, finalDmg, () => {
+                this.addXP(18);
+            }, hitInfo);
+            if (hitInfo?.point) this.showDamageNumber(hitInfo.point, finalDmg, false);
             if (this.multiplayer.isActive) this.multiplayer.sendZombieHit(idx, dmg);
         }, () => {
             if (this.ui) this.ui.showHitmarker();
+            if (this.isMobile && navigator.vibrate) navigator.vibrate(6);
         });
 
         // Animate gate door
@@ -1529,6 +2181,7 @@ class Game {
 
         const houseParts = (this.houseHealth > 0) ? (this.houseColliders || []) : [];
         const fenceParts = (this.fence.health > 0 && this.fenceColliders) ? this.fenceColliders : [];
+        if (this.isMobile) this.player.setTouchMove(this.mobileMoveInput.x, this.mobileMoveInput.y);
         this.player.update(d, [...houseParts, ...fenceParts]);
 
         // Follow vehicle with camera if driving
@@ -1542,7 +2195,7 @@ class Game {
         this.zombieManager.update(d, this.player.group, this.house, this.fence,
             (t, a) => this.damage(t, a),
 
-            () => { },
+            () => { this.addXP(12); },
             (type, amt) => {
                 this.player.collectLoot(type, amt);
                 this.ui.updateCoins(this.player.coins);
@@ -1618,48 +2271,45 @@ class Game {
         }
 
         const isADS = isRightMouseDown;
+        this.player.isADS = isADS; // Sync state to player for internal positioning
 
-        if (isADS) {
-            const targetFOV = isSniper ? 15 : 42;
-            this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFOV, 0.2);
-
-            if (isSniper) {
-                if (this.ui.crosshair) this.ui.crosshair.classList.add('hidden');
-                if (this.player.gunMesh) this.player.gunMesh.visible = false;
-                if (scopeUi) scopeUi.classList.remove('hidden');
-            } else {
-                // Move gun/grenade to center for ADS
-                if (this.weaponSystem.currentWeaponKey === 'Grenade') {
-                    if (this.player.grenadeHandMesh) this.player.grenadeHandMesh.position.lerp(new THREE.Vector3(0, -0.25, -0.3), 0.2);
-                } else {
-                    if (this.player.gunMesh) this.player.gunMesh.position.lerp(new THREE.Vector3(0, -0.28, -0.4), 0.2);
-                }
-            }
+        if (isADS && isSniper) {
+            if (this.ui.crosshair) this.ui.crosshair.classList.add('hidden');
+            if (this.player.gunMesh) this.player.gunMesh.visible = false;
+            if (scopeUi) scopeUi.classList.remove('hidden');
         } else {
-            this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, 70, 0.15);
             if (this.ui.crosshair) this.ui.crosshair.classList.remove('hidden');
-
-            // Re-apply visibility based on current weapon
-            this.player.switchWeaponModel(this.weaponSystem.currentWeaponKey);
-
-            if (this.player.gunMesh) {
-                this.player.gunMesh.position.lerp(this.player.gunTargetPos || new THREE.Vector3(0.5, -0.5, -1), 0.15);
-            }
-            if (this.player.grenadeHandMesh) {
-                this.player.grenadeHandMesh.position.lerp(this.player.gunTargetPos ? this.player.gunTargetPos.clone().add(new THREE.Vector3(0, 0.1, 0)) : new THREE.Vector3(0.5, -0.4, -1), 0.15);
-            }
-
             if (scopeUi) scopeUi.classList.add('hidden');
+            // visibility handled inside player.update/switchWeaponModel
         }
         this.camera.updateProjectionMatrix();
 
-        if (isMouseDown && this.weaponSystem.canFire()) {
-            const zombiesInPlay = this.zombieManager.zombies.map((z, i) => ({ z, i })).filter(item => !item.z.isDead);
+        if (this.mobileTapShotQueued && (performance.now() - this.mobileTapLast > 320)) {
+            this.mobileTapShotQueued = false;
+        }
+        const canAutoShoot = this.isMobile && this.isAimingAtZombie(zombiesInPlay);
+        const wantsShoot = isMouseDown || this.mobileShootHeld || this.mobileTapShotQueued || canAutoShoot;
+        if (this.isMobile) {
+            this.buildZombiePriorityHeaps(zombiesInPlay);
+            this.applyMobileAimAssist(zombiesInPlay, d);
+        }
 
-            const w = this.weaponSystem.fire(zombiesInPlay.map(item => item.z), (z, dmg) => {
+        if (wantsShoot && this.weaponSystem.canFire()) {
+            const indexedZombies = this.zombieManager.zombies.map((z, i) => ({ z, i })).filter(item => !item.z.isDead);
+
+            const w = this.weaponSystem.fire(indexedZombies.map(item => item.z), (z, dmg, hitInfo) => {
                 // Find index of this zombie to sync
                 const idx = this.zombieManager.zombies.indexOf(z);
-                this.zombieManager.hitZombie(z, dmg, () => { });
+                const finalDmg = dmg * this.playerDamageMultiplier * (hitInfo?.isHeadshot ? 1.7 : 1);
+                this.zombieManager.hitZombie(z, finalDmg, () => {
+                    this.addXP(hitInfo?.isHeadshot ? 25 : 14);
+                }, hitInfo);
+                if (hitInfo?.point) this.showDamageNumber(hitInfo.point, finalDmg, !!hitInfo?.isHeadshot);
+                if (hitInfo?.isHeadshot) {
+                    this.timeScale = 0.45;
+                    this.ui.announceWave('HEADSHOT', '#ffef66');
+                }
+                audioSystem.playImpactVariation();
                 if (this.multiplayer.isActive) {
                     this.multiplayer.sendZombieHit(idx, dmg);
                 }
@@ -1669,9 +2319,13 @@ class Game {
 
             if (w) {
                 this.ui.updateAmmo(w.ammo, this.player.ammoReserves[this.weaponSystem.currentWeaponKey]);
+                if (this.isMobile) this.ui.triggerShootCooldown(this.weaponSystem.currentWeapon.fireRate);
+                if (this.isMobile && navigator.vibrate) navigator.vibrate(8);
+                this.mobileTapShotQueued = false;
                 // Add recoil shake
                 this.shakeIntensity = w.recoil;
                 this.shakeTime = 0.15;
+                this.player.fireRecoil(); // Physical recoil
 
                 if (this.multiplayer.isActive) {
                     this.multiplayer.sendShoot(this.weaponSystem.currentWeaponKey, this.camera);
@@ -1682,7 +2336,7 @@ class Game {
         // Camera Shake Processing
         if (this.shakeTime > 0) {
             this.shakeTime -= d;
-            const s = this.shakeIntensity;
+            const s = this.isMobile ? this.shakeIntensity * 0.55 : this.shakeIntensity;
             this.camera.position.x += (Math.random() - 0.5) * s;
             this.camera.position.y += (Math.random() - 0.5) * s;
             this.camera.rotation.x += s * 0.5; // Recoil kick up
