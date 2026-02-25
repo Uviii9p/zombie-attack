@@ -391,7 +391,29 @@ class Game {
             }, 3000);
         });
 
-        // Dust particle listener
+        window.addEventListener('gate-broken', () => {
+            if (window.isGateBroken) return;
+            window.isGateBroken = true;
+            this.ui.announceWave('GATE BREACHED!', '#ff4444');
+            window.dispatchEvent(new CustomEvent('screen-shake', { detail: { intensity: 0.6, duration: 0.5 } }));
+            audioSystem.playExplosion();
+
+            if (this.gateDoor) {
+                const idx = this.fenceColliders.indexOf(this.gateDoorCollider);
+                if (idx !== -1) this.fenceColliders.splice(idx, 1);
+
+                const startRot = this.gateDoor.rotation.x;
+                const targetRot = Math.PI / 2.2;
+                let t = 0;
+                const animateBreak = () => {
+                    t += 0.05;
+                    this.gateDoor.rotation.x = THREE.MathUtils.lerp(startRot, targetRot, Math.min(t, 1));
+                    if (t < 1) requestAnimationFrame(animateBreak);
+                };
+                animateBreak();
+            }
+        });
+
         window.addEventListener('player-run-dust', (e) => {
             if (!this.gameStarted || this.isGameOver) return;
             if (this.isMobile && this.dustParticles.length > 28) return;

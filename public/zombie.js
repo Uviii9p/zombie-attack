@@ -24,6 +24,10 @@ export class Zombie {
         this.enraged = false;
         this.targetGroundY = 0;
         this.modelLiftOffset = 0;
+        this.specialCooldown = 0;
+        this.isClimbing = false;
+        this.isBoss = false;
+        this.shockwaveGroup = null;
 
         this.mesh = new THREE.Group();
         // Randomize Body Size
@@ -253,18 +257,14 @@ export class Zombie {
             this.bodyMat.opacity = 1.0;
             this.helmet.visible = true; // Show helmet for armored
         } else {
-            // NORMAL
-            this.type = 'normal';
-            this.maxHealth = 75 + (wave * 5); // scales slowly
-            this.speed = 0.04 + Math.random() * 0.02 + (wave * 0.002);
-            this.damage = 10 + Math.floor(wave / 2);
-            this.mesh.scale.set(1, 1, 1);
-            this.bodyMat.color.setHex(this.originalColor);
             this.isPhantom = false;
             this.bodyMat.transparent = false;
         }
 
         this.health = this.maxHealth;
+        this.specialCooldown = 0;
+        this.isBoss = false;
+        this.enraged = false;
         this.isDead = false;
         this.dropProcessed = false;
         this.modelLiftOffset = 0;
@@ -318,6 +318,18 @@ export class Zombie {
         }
 
         this.health -= applied;
+
+        // Rage Mode (Below 30% Health)
+        if (!this.enraged && this.health < (this.maxHealth * 0.3) && this.health > 0) {
+            this.enraged = true;
+            this.speed *= 1.5;
+            this.bodyMat.emissive.setHex(0x330000);
+            this.bodyMat.emissiveIntensity = 1.0;
+            if (this.isBoss) {
+                window.dispatchEvent(new CustomEvent('boss-enrage'));
+            }
+        }
+
         if (this.health <= 0) {
             this.die();
             return true;
@@ -360,6 +372,16 @@ export class Zombie {
     }
 
     update(delta, player, house, fence, onAttack, walls = []) {
+        if (this.specialCooldown > 0) this.specialCooldown -= delta;
+
+        // Boss Special Attack (Shockwave)
+        if (this.isBoss && this.specialCooldown <= 0 && !this.isDead && !this.isRising) {
+            const dist = this.mesh.position.distanceTo(player.position);
+            if (dist < 10) {
+                this.bossSpecialAttack(player, onAttack);
+            }
+        }
+
         // 🔒 HARD LOCK TO GROUND (Part 1 FIX)
         if (this.mesh.position.y < this.targetGroundY) {
             this.mesh.position.y = this.targetGroundY;
@@ -510,41 +532,73 @@ export class Zombie {
             targetType === 'gate' ? pos.distanceTo(gatePos) : distToHouse;
 
         if (distToTarget > stopDist) {
-            // Movement logic
-            const dir = new THREE.Vector3().subVectors(actualTargetPos, pos).normalize();
-            dir.y = 0;
-            dir.x += Math.cos(Date.now() * 0.0015 + this.pathSeed) * 0.04;
-            dir.z += Math.sin(Date.now() * 0.0015 + this.pathSeed) * 0.04;
-            dir.normalize();
+            // Smart movement logic (Obstacle Avoidance)
+            const direction = new THREE.Vector3().subVectors(actualTargetPos, pos).normalize();
+            direction.y = 0;
+
+            // Smart Steering (Raycast Forward)
+            const forward = direction.clone();
+            const raycaster = new THREE.Raycaster(pos.clone().add(new THREE.Vector3(0, 0.8, 0)), forward, 0, 3.5);
+            const obsIntersects = raycaster.intersectObjects(walls);
+
+            let steering = false;
+            if (obsIntersects.length > 0) {
+                const obstacle = obsIntersects[0].object;
+                const distToObs = obsIntersects[0].distance;
+                const obsHeight = obstacle.geometry?.parameters?.height || 2;
+
+                // 🧗 CLIMBING SYSTEM
+                if (obsHeight < 4 && distToObs < 1.0) {
+                    this.isClimbing = true;
+                    pos.y += 0.08 * (delta * 60);
+                    // Temporarily lift target ground Y to allow climbing
+                    this.targetGroundY = Math.max(this.targetGroundY, pos.y);
+                } else if (distToObs < 3.0) {
+                    // Avoidance steering
+                    direction.x += this.flankDir * 0.8;
+                    direction.normalize();
+                    steering = true;
+                }
+            } else {
+                this.isClimbing = false;
+            }
+
+            if (!steering) {
+                direction.x += Math.cos(Date.now() * 0.0015 + this.pathSeed) * 0.04;
+                direction.z += Math.sin(Date.now() * 0.0015 + this.pathSeed) * 0.04;
+                direction.normalize();
+            }
 
             if (this.chargeTimer > 0) this.chargeTimer -= delta;
             const chargeMul = this.chargeTimer > 0 ? 2.4 : 1;
             const moveAmt = this.speed * chargeMul * delta * 60;
-            const nextPos = pos.clone().add(dir.clone().multiplyScalar(moveAmt));
+            const nextPos = pos.clone().add(direction.multiplyScalar(moveAmt));
 
-            // Basic Wall Collision
-            let hit = false;
-            if (walls.length > 0) {
-                const zBox = new THREE.Box3().setFromCenterAndSize(
-                    nextPos.clone().add(new THREE.Vector3(0, 0.8, 0)),
-                    new THREE.Vector3(0.6, 1.6, 0.6)
-                );
-                for (let wall of walls) {
-                    if (wall.userData.type === 'floor') continue;
-                    const wallBox = new THREE.Box3().setFromObject(wall);
-                    if (zBox.intersectsBox(wallBox)) {
-                        hit = true;
-                        break;
+            // Small obstacle jitter fix
+            if (this.isClimbing) {
+                pos.copy(nextPos);
+            } else {
+                // Wall Collision Check (Final safety)
+                let hit = false;
+                if (walls.length > 0) {
+                    const zBox = new THREE.Box3().setFromCenterAndSize(
+                        nextPos.clone().add(new THREE.Vector3(0, 0.8, 0)),
+                        new THREE.Vector3(0.6, 1.6, 0.6)
+                    );
+                    for (let wall of walls) {
+                        if (wall.userData.type === 'floor') continue;
+                        const wallBox = new THREE.Box3().setFromObject(wall);
+                        if (zBox.intersectsBox(wallBox)) {
+                            hit = true;
+                            break;
+                        }
                     }
                 }
-            }
-
-            if (!hit) {
-                pos.copy(nextPos);
+                if (!hit) pos.copy(nextPos);
             }
 
             // Strict Y-axis clamping to prevent underground clipping
-            if (pos.y < this.targetGroundY) {
+            if (!this.isClimbing && pos.y < this.targetGroundY) {
                 pos.y = this.targetGroundY;
             }
             // Shambling / Running animation
@@ -574,8 +628,14 @@ export class Zombie {
                 this.rArm.rotation.x = -Math.PI / 1.8 - Math.cos(time * 10) * 0.2;
             }
         } else {
-            // Attack logic
-            // If we were just targeting the "gate" position, don't attack the gate position itself
+            // Attack logic (includes gate breaking)
+            if (targetType === 'gate' || targetType === 'fence') {
+                const gateHealth = window.gateHealth || 300;
+                if (!window.isGateBroken && pos.distanceTo(new THREE.Vector3(0, 0, 13.5)) < 3) {
+                    window.dispatchEvent(new CustomEvent('attack-gate', { detail: { damage: this.damage * 0.1 } }));
+                }
+            }
+
             if (targetType === 'gate') {
                 // Transition to house/player
                 return;
@@ -643,6 +703,74 @@ export class Zombie {
         }
         return true;
     }
+
+    bossSpecialAttack(player, onAttack) {
+        if (this.specialCooldown > 0) return;
+        this.specialCooldown = 5.0; // 5 seconds cooldown
+
+        // Attack logic
+        const radius = 10;
+        const dist = this.mesh.position.distanceTo(player.position);
+        if (dist < radius) {
+            onAttack('player', 30);
+            window.dispatchEvent(new CustomEvent('screen-shake', { detail: { intensity: 1.0, duration: 0.6 } }));
+        }
+
+        this.createShockwaveEffect(this.mesh.position.clone());
+        audioSystem.playExplosion();
+    }
+
+    createShockwaveEffect(position) {
+        // Shockwave rings
+        const ringGeo = new THREE.RingGeometry(0.1, 0.5, 32);
+        const ringMat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.copy(position).add(new THREE.Vector3(0, 0.1, 0));
+        this.scene.add(ring);
+
+        let scale = 1;
+        const animateRing = () => {
+            scale += 0.8;
+            ring.scale.set(scale, scale, 1);
+            ring.material.opacity -= 0.02;
+            if (ring.material.opacity > 0) {
+                requestAnimationFrame(animateRing);
+            } else {
+                this.scene.remove(ring);
+                ring.geometry.dispose();
+                ring.material.dispose();
+            }
+        };
+        animateRing();
+
+        // Particle burst
+        for (let i = 0; i < 20; i++) {
+            const p = new THREE.Mesh(
+                new THREE.BoxGeometry(0.2, 0.2, 0.2),
+                new THREE.MeshBasicMaterial({ color: 0xffaa00 })
+            );
+            p.position.copy(position).add(new THREE.Vector3(0, 0.5, 0));
+            const vel = new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 2, (Math.random() - 0.5) * 2);
+            this.scene.add(p);
+
+            const life = 1000 + Math.random() * 500;
+            const start = Date.now();
+            const animP = () => {
+                if (Date.now() - start > life) {
+                    this.scene.remove(p);
+                    p.geometry.dispose();
+                    p.material.dispose();
+                    return;
+                }
+                p.position.add(vel);
+                vel.y -= 0.05; // Gravity
+                p.rotation.x += 0.1;
+                requestAnimationFrame(animP);
+            };
+            animP();
+        }
+    }
 }
 
 export class ZombieManager {
@@ -693,31 +821,40 @@ export class ZombieManager {
         this.maxWaveScale = 30; // Cap scaling at wave 30
     }
 
+    getWaveZombieCount(wave) {
+        return Math.min(60, 5 + wave * 4);
+    }
+
     getScaledHealth(wave) {
-        const w = Math.min(wave, this.maxWaveScale);
-        return Math.floor(75 * (1 + w * 0.2));
+        return 50 + wave * 15;
     }
 
     getScaledDamage(wave) {
-        const w = Math.min(wave, this.maxWaveScale);
-        return Math.floor(10 * (1 + w * 0.15));
+        return 10 + Math.floor(wave * 2);
     }
 
     getScaledSpeed(wave) {
-        const w = Math.min(wave, this.maxWaveScale);
-        return 0.04 + (w * 0.003);
+        return 0.03 + wave * 0.002;
     }
 
     getBossHealth(wave) {
-        const w = Math.min(wave, this.maxWaveScale);
-        return Math.floor(500 * (1 + w * 0.35));
-    }
-
-    getBossName(wave) {
-        return this.bossNames[(wave - 1) % this.bossNames.length] + ' – Wave ' + wave;
+        return (50 + wave * 15) * 5; // 5x Health as requested
     }
 
     update(delta, player, house, fence, onAttack, onKill, onLoot, walls = []) {
+        if (!window.hasOwnProperty('gateHealth')) {
+            window.gateHealth = 300;
+            window.isGateBroken = false;
+            window.addEventListener('attack-gate', (e) => {
+                const damage = e.detail.damage || 1;
+                if (window.isGateBroken) return;
+                window.gateHealth -= damage;
+                if (window.gateHealth <= 0) {
+                    window.dispatchEvent(new CustomEvent('gate-broken'));
+                }
+            });
+        }
+
         if (player) this.lastPlayerPos.copy(player.position);
         if (!this.firstWaveAnnounced) {
             this.firstWaveAnnounced = true;
@@ -774,12 +911,19 @@ export class ZombieManager {
                     this.spawnInterval = Math.max(0.4, 4.0 - (this.currentWave * 0.18));
                 }
 
-                // Wave cleared — trigger boss
+                // Wave cleared — trigger boss or next wave
                 if (this.zombiesToSpawn === 0 && this.activeCount() === 0 && !this.bossSpawnPending) {
                     window.dispatchEvent(new CustomEvent('wave-cleared', { detail: this.currentWave }));
-                    // Spawn boss after a short dramatic delay
-                    this.bossSpawnPending = true;
-                    this.bossSpawnDelay = 2.0;
+
+                    if (this.currentWave % 5 === 0) {
+                        // Spawn boss after a short dramatic delay
+                        this.bossSpawnPending = true;
+                        this.bossSpawnDelay = 2.0;
+                    } else {
+                        // Start intermission for next wave
+                        this.waveIntermission = true;
+                        this.intermissionTimer = 6.0;
+                    }
                 }
             }
         }
