@@ -279,6 +279,11 @@ export class Zombie {
             stopDist = 1.8;
         }
 
+        if (this.isBoss && this.bossName === 'THE FINAL DOOM') {
+            targetType = 'player';
+            stopDist = 3.5; // Big attack range for big boss
+        }
+
         if (this.weapon && !this.isBoss && !this.isPhantom) {
             if (targetType === 'player' || targetType === 'house') {
                 stopDist = (this.weapon === 'grenade') ? 14 : 12;

@@ -122,12 +122,31 @@ export class Player {
         this.gunMesh.position.copy(this.gunTargetPos);
         this.handGroup.add(this.gunMesh);
 
+        // Grenade Model Detail
+        const grenadeGeo = new THREE.SphereGeometry(0.12, 8, 8);
+        const grenadeMat = new THREE.MeshStandardMaterial({ color: 0x223322, roughness: 0.8 });
+        this.grenadeHandMesh = new THREE.Mesh(grenadeGeo, grenadeMat);
+        this.grenadeHandMesh.position.copy(this.gunTargetPos);
+        this.grenadeHandMesh.position.y += 0.1; // Adjust position slightly for hand
+        this.grenadeHandMesh.visible = false;
+        this.handGroup.add(this.grenadeHandMesh);
+
         this.camera.add(this.handGroup);
         this.scene.add(this.camera);
 
         // Call methods AFTER properties are defined
         this.respawn();
         this.initControls();
+    }
+
+    switchWeaponModel(weaponName) {
+        if (weaponName === 'Grenade') {
+            this.gunMesh.visible = false;
+            this.grenadeHandMesh.visible = true;
+        } else {
+            this.gunMesh.visible = true;
+            this.grenadeHandMesh.visible = false;
+        }
     }
 
     initControls() {

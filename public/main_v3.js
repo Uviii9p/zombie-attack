@@ -399,10 +399,21 @@ class Game {
         let floorColor = 0x4a4339;
         let wallMetalness = 0.1;
         let trimColor = 0x3e3427;
+        let trimEmissive = 0x000000;
+        let trimIntensity = 0;
 
-        if (level >= 4) { wallColor = 0xddddf0; floorColor = 0x1a1a24; wallMetalness = 0.7; trimColor = 0x00ffff; } // Neon Sci-fi Cyberpunk looks very attractive
-        else if (level >= 3) { wallColor = 0x555566; floorColor = 0x333333; wallMetalness = 0.4; trimColor = 0x222222; } // Solid concrete bunker
-        else if (level >= 2) { wallColor = 0x7a6550; floorColor = 0x40372d; wallMetalness = 0.2; trimColor = 0x332b20; } // Reinforced wood/brick
+        if (level >= 4) {
+            wallColor = 0xddddf0; floorColor = 0x1a1a24; wallMetalness = 0.8;
+            trimColor = 0x00ffff; trimEmissive = 0x00ffff; trimIntensity = 1.0;
+        } // Neon Sci-fi Cyberpunk
+        else if (level >= 3) {
+            wallColor = 0x555566; floorColor = 0x333333; wallMetalness = 0.5;
+            trimColor = 0x2222ff; trimEmissive = 0x0000ff; trimIntensity = 0.5;
+        } // Tech bunker
+        else if (level >= 2) {
+            wallColor = 0x7a6550; floorColor = 0x40372d; wallMetalness = 0.2;
+            trimColor = 0xffaa00; trimEmissive = 0x442200; trimIntensity = 0.5;
+        } // Bronze reinforced
 
         // ===== MATERIALS =====
         const wallMat = new THREE.MeshStandardMaterial({ color: wallColor, roughness: 0.8, metalness: wallMetalness });
@@ -410,7 +421,7 @@ class Game {
         const floorMat = new THREE.MeshStandardMaterial({ color: floorColor, roughness: 0.9 });
         const floorPlankMat = new THREE.MeshStandardMaterial({ color: 0x4a3520, roughness: 0.85 });
         const roofMat = new THREE.MeshStandardMaterial({ color: 0x3d352b, roughness: 0.9 });
-        const trimMat = new THREE.MeshStandardMaterial({ color: trimColor, metalness: 0.3, roughness: 0.6 });
+        const trimMat = new THREE.MeshStandardMaterial({ color: trimColor, metalness: 0.5, roughness: 0.2, emissive: trimEmissive, emissiveIntensity: trimIntensity });
         const windowMat = new THREE.MeshStandardMaterial({ color: 0x1a3355, emissive: 0xffaa44, emissiveIntensity: 0.8, transparent: true, opacity: 0.6 });
         const windowFrameMat = new THREE.MeshStandardMaterial({ color: 0x2a2218, roughness: 0.8 });
         const metalMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8, roughness: 0.3 });
@@ -1325,6 +1336,7 @@ class Game {
             if (this.weaponSystem.switchWeapon(m[e.code])) {
                 this.ui.updateWeapon(m[e.code]);
                 this.ui.updateAmmo(this.weaponSystem.currentWeapon.ammo, this.ui.isAdmin ? '∞' : this.player.ammoReserves[m[e.code]]);
+                this.player.switchWeaponModel(m[e.code]);
             }
         }
         if (e.code === 'KeyF') { audioSystem.playClick(); this.player.toggleFlashlight(); }
@@ -1538,18 +1550,27 @@ class Game {
                 if (this.player.gunMesh) this.player.gunMesh.visible = false;
                 if (scopeUi) scopeUi.classList.remove('hidden');
             } else {
-                // Move gun to center for ADS
-                if (this.player.gunMesh) {
-                    this.player.gunMesh.position.lerp(new THREE.Vector3(0, -0.28, -0.4), 0.2);
+                // Move gun/grenade to center for ADS
+                if (this.weaponSystem.currentWeaponKey === 'Grenade') {
+                    if (this.player.grenadeHandMesh) this.player.grenadeHandMesh.position.lerp(new THREE.Vector3(0, -0.25, -0.3), 0.2);
+                } else {
+                    if (this.player.gunMesh) this.player.gunMesh.position.lerp(new THREE.Vector3(0, -0.28, -0.4), 0.2);
                 }
             }
         } else {
             this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, 70, 0.15);
             if (this.ui.crosshair) this.ui.crosshair.classList.remove('hidden');
+
+            // Re-apply visibility based on current weapon
+            this.player.switchWeaponModel(this.weaponSystem.currentWeaponKey);
+
             if (this.player.gunMesh) {
-                this.player.gunMesh.visible = true;
                 this.player.gunMesh.position.lerp(this.player.gunTargetPos || new THREE.Vector3(0.5, -0.5, -1), 0.15);
             }
+            if (this.player.grenadeHandMesh) {
+                this.player.grenadeHandMesh.position.lerp(this.player.gunTargetPos ? this.player.gunTargetPos.clone().add(new THREE.Vector3(0, 0.1, 0)) : new THREE.Vector3(0.5, -0.4, -1), 0.15);
+            }
+
             if (scopeUi) scopeUi.classList.add('hidden');
         }
         this.camera.updateProjectionMatrix();
