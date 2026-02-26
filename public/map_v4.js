@@ -8,13 +8,12 @@ export class MapManager {
     }
 
     createDesertMap() {
-        // High quality ground with multiple textures (simulated with groups/colors)
-        const groundGeo = new THREE.PlaneGeometry(1000, 1000, 10, 10);
+        // Step 2: High quality ground
+        const groundGeo = new THREE.PlaneGeometry(1000, 1000);
         const groundMat = new THREE.MeshStandardMaterial({
-            color: 0x8b7355,
+            color: 0x6b5e4a,
             roughness: 0.9,
-            metalness: 0.0,
-            flatShading: true
+            metalness: 0
         });
         const ground = new THREE.Mesh(groundGeo, groundMat);
         ground.rotation.x = -Math.PI / 2;

@@ -33,10 +33,14 @@ class Game {
         this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        // Visual Improvements
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.toneMappingExposure = 1.0;
+        this.renderer.toneMappingExposure = 1.2;
+
         document.getElementById('game-container').appendChild(this.renderer.domElement);
     }
 
@@ -69,16 +73,23 @@ class Game {
     }
 
     setupLights() {
-        this.ambient = new THREE.AmbientLight(0x404040, 0.5);
+        // Step 1: Better Lighting
+        this.ambient = new THREE.AmbientLight(0xffffff, 0.6);
         this.scene.add(this.ambient);
 
         this.sun = new THREE.DirectionalLight(0xffffff, 1.2);
         this.sun.position.set(50, 100, 50);
         this.sun.castShadow = true;
         this.sun.shadow.mapSize.set(2048, 2048);
+        this.sun.shadow.camera.left = -100;
+        this.sun.shadow.camera.right = 100;
+        this.sun.shadow.camera.top = 100;
+        this.sun.shadow.camera.bottom = -100;
         this.scene.add(this.sun);
 
-        this.scene.fog = new THREE.FogExp2(0x1a1a2e, 0.01);
+        // Step 4 & 5: Fog and Background
+        this.scene.background = new THREE.Color(0x87b5ff);
+        this.scene.fog = new THREE.FogExp2(0x8ea6c9, 0.015);
     }
 
     setupEvents() {
@@ -278,6 +289,11 @@ class Game {
                 this.multiplayer.sendPosition(this.player, this.player.currentWeapon);
                 this.multiplayer.update(delta, this.camera);
                 this.multiplayer.sendZombieStates(this.zombieManager.zombies, this.wave);
+            }
+
+            // Step 7: Smooth camera sway
+            if (this.gameStarted) {
+                this.camera.position.y += Math.sin(Date.now() * 0.005) * 0.002;
             }
         }
 

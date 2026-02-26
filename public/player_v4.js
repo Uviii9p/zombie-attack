@@ -68,12 +68,6 @@ export class Player {
         this.updateWeaponModel();
     }
 
-    updateWeaponModel() {
-        this.weaponModel.clear();
-        const w = this.weapons[this.currentWeapon];
-        const g = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.6), new THREE.MeshStandardMaterial({ color: 0x222222 }));
-        this.weaponModel.add(g);
-    }
 
     update(delta, input, collidables) {
         this.updateMovement(delta, input, collidables);
@@ -180,7 +174,18 @@ export class Player {
     }
 
     updateWeaponModel() {
-        if (!this.gun) return;
+        this.weaponModel.clear();
+        // Step 6: Better PBR weapon material
+        const gunGeo = new THREE.BoxGeometry(0.1, 0.1, 0.6);
+        const gunMat = new THREE.MeshStandardMaterial({
+            color: 0x222222,
+            roughness: 0.4,
+            metalness: 0.8
+        });
+
+        this.gun = new THREE.Mesh(gunGeo, gunMat);
+        this.weaponModel.add(this.gun);
+
         // Simple visual differentiation for weapons
         switch (this.currentWeapon) {
             case 'Sniper':

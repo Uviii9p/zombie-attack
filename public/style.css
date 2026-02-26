@@ -47,6 +47,8 @@ canvas {
     height: 100% !important;
     z-index: 1;
     pointer-events: auto;
+    /* Step 10: Digital Post-Processing */
+    filter: saturate(1.1) contrast(1.05) brightness(1.05);
 }
 
 #damage-overlay {

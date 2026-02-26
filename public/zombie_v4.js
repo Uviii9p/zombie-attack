@@ -18,6 +18,10 @@ export class Zombie {
         this.attackCooldown = 0;
         this.attackRange = 1.5;
         this.velocity = new THREE.Vector3();
+
+        // Step 9: Scale variation
+        const s = 1.0 + Math.random() * 0.3;
+        this.mesh.scale.set(s, s, s);
     }
 
     createModel() {
@@ -30,8 +34,8 @@ export class Zombie {
         });
 
         const skinMat = new THREE.MeshStandardMaterial({
-            color: 0x6b8e23,
-            roughness: 0.9,
+            color: 0x3a5f3a, // Step 9: Greenish material
+            roughness: 0.8,
             metalness: 0.0
         });
 
@@ -267,6 +271,12 @@ export class Zombie {
 
         this.lLeg.rotation.x = Math.sin(time * 2) * 0.4;
         this.rLeg.rotation.x = -Math.sin(time * 2) * 0.4;
+
+        // Step 3: Force Y position lock
+        if (!this.isDead) {
+            this.mesh.position.y = 0;
+            this.velocity.y = 0;
+        }
     }
 
     playAttackAnim() {
