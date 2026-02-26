@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1.0">
-    <title id="game-title">Desert Survival: Zombie Apocalypse</title>
+    <title id="game-title">Desert Survival: Of Zombie</title>
     <link rel="stylesheet" href="style.css">
     <!-- Google Fonts -->
     <link
@@ -55,6 +55,8 @@
     <div id="game-container">
         <div id="loading-screen">
             <div class="loading-card">
+                <img src="logo.png" id="loading-logo" alt="Desert Survival Logo"
+                    style="width: 200px; margin-bottom: 20px;">
                 <h2>Loading Mission</h2>
                 <div class="loading-bar-track">
                     <div id="loading-progress" class="loading-bar-fill"></div>
@@ -333,7 +335,9 @@
         </div>
 
         <div id="menu-screen" class="screen-overlay hidden">
-            <h1 id="game-title-text" style="cursor: pointer; user-select: none;">DESERT SURVIVAL</h1>
+            <img src="logo.png" id="menu-logo" alt="Desert Survival Logo"
+                style="width: 400px; margin-bottom: 20px; filter: drop-shadow(0 0 20px rgba(0,0,0,0.8));">
+            <h1 id="game-title-text" style="cursor: pointer; user-select: none; display: none;">DESERT SURVIVAL</h1>
             <p class="subtitle">Defend your home from the walking dead.</p>
             <div class="menu-buttons">
                 <button id="start-btn" class="btn-primary">Solo Play</button>
