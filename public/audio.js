@@ -21,6 +21,35 @@ export class AudioSystem {
         this.startEngineLoop();
     }
 
+    play(soundName, position = null) {
+        if (!this.isInitialized || this.muted) return;
+
+        const name = soundName.toLowerCase();
+
+        switch (name) {
+            case 'buy': this.playBuy(); break;
+            case 'error': this.playError(); break;
+            case 'click': this.playClick(); break;
+            case 'ui_hover': this.playUiHover(); break;
+            case 'hit_marker': this.playHitMarker(); break;
+            case 'shoot_ak47': this.playShootAK(); break;
+            case 'shoot_sniper': this.playShootSniper(); break;
+            case 'shoot_rpg': this.playShootRPG(); break;
+            case 'zombie_death': this.playZombieDeath(); break;
+            case 'zombie_hit': this.playZombieHit(); break;
+            case 'zombie_groan': this.playZombieGroan(); break;
+            case 'player_hurt': case 'player_hit': this.playPlayerHit(); break;
+            case 'explosion': this.playExplosion(); break;
+            case 'coin': this.playCoin(); break;
+            case 'level_up': this.playLevelUp(); break;
+            case 'empty_click': this.playEmptyClick(); break;
+            case 'impact': this.playImpactVariation(); break;
+            case 'boss_roar': this.playBossRoar(); break;
+            default:
+                console.warn(`AudioSystem: Sound "${soundName}" not found.`);
+        }
+    }
+
     playTone(freq, type, duration, vol = 1) {
         if (!this.isInitialized || this.muted) return;
         const osc = this.ctx.createOscillator();
@@ -339,6 +368,19 @@ export class AudioSystem {
             // Silence if not occupied
             this.engineGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
         }
+    }
+
+    playLevelUp() {
+        if (!this.isInitialized || this.muted) return;
+        const now = this.ctx.currentTime;
+        [440, 554, 659, 880].forEach((f, i) => {
+            this.playTone(f, 'square', 0.2, 0.15);
+        });
+    }
+
+    playEmptyClick() {
+        if (!this.isInitialized || this.muted) return;
+        this.playTone(150, 'square', 0.05, 0.2);
     }
 }
 

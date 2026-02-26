@@ -37,10 +37,8 @@ export class Player {
         this.createModel();
 
         // Camera state
-        this.yaw = new THREE.Group();
         this.pitch = new THREE.Group();
-        this.scene.add(this.yaw);
-        this.yaw.add(this.pitch);
+        this.group.add(this.pitch);
         this.pitch.add(this.camera);
         this.camera.position.set(0, 1.7, 0); // FPP default
 
@@ -122,12 +120,20 @@ export class Player {
 
     updateCamera(delta) {
         if (this.viewMode === 'TPP') {
-            const targetPos = this.group.position.clone().add(this.tppOffset.clone().applyQuaternion(this.group.quaternion));
+            const horizontalDist = 4.0;
+            const verticalDist = 2.0;
+            const sideOffset = 0.5;
+
+            const tppPos = new THREE.Vector3(sideOffset, verticalDist, horizontalDist);
+            tppPos.applyQuaternion(this.group.quaternion);
+            const targetPos = this.group.position.clone().add(tppPos);
+
             this.camera.position.lerp(targetPos, 0.1);
             this.camera.lookAt(this.group.position.clone().add(new THREE.Vector3(0, 1.5, 0)));
         } else {
-            this.camera.position.copy(this.group.position).add(new THREE.Vector3(0, 1.7, 0));
-            this.camera.quaternion.copy(this.group.quaternion);
+            // First Person: Reset camera to head position (inside pitch group)
+            this.camera.position.set(0, 1.7, 0);
+            this.camera.rotation.set(0, 0, 0);
         }
 
         if (this.isADS) {
@@ -171,6 +177,28 @@ export class Player {
         // Ragdoll simulated by rotating mesh
         this.mesh.rotation.x = Math.PI / 2;
         this.mesh.position.y = 0.2;
+    }
+
+    updateWeaponModel() {
+        if (!this.gun) return;
+        // Simple visual differentiation for weapons
+        switch (this.currentWeapon) {
+            case 'Sniper':
+                this.gun.scale.set(0.1, 0.1, 1.2);
+                this.gun.material.color.setHex(0x333333);
+                break;
+            case 'RPG':
+                this.gun.scale.set(0.25, 0.25, 0.8);
+                this.gun.material.color.setHex(0x27ae60);
+                break;
+            case 'Grenade':
+                this.gun.scale.set(0.3, 0.3, 0.3);
+                this.gun.material.color.setHex(0x2c3e50);
+                break;
+            default: // AK47
+                this.gun.scale.set(0.08, 0.08, 0.6);
+                this.gun.material.color.setHex(0x1a1a1a);
+        }
     }
 
     addXP(amount) {

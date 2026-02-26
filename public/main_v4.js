@@ -23,6 +23,7 @@ class Game {
         this.wave = 1;
         this.waveInProgress = false;
         this.isGameOver = false;
+        this.gameStarted = false;
         this.dayCycle = 0; // 0 to 1
 
         this.init();
@@ -39,6 +40,12 @@ class Game {
         document.getElementById('game-container').appendChild(this.renderer.domElement);
     }
 
+    onResize() {
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
     init() {
         this.mapManager.createDesertMap();
         this.setupLights();
@@ -49,6 +56,14 @@ class Game {
         // Initial UI
         this.ui.updateCoins(this.player.coins);
         this.ui.updateXP(this.player.level, 0, this.player.skillPoints);
+
+        // Hide Loading Screen
+        setTimeout(() => {
+            const ls = document.getElementById('loading-screen');
+            if (ls) ls.classList.add('hidden');
+        }, 500);
+
+        window.addEventListener('resize', () => this.onResize());
 
         this.loop();
     }
@@ -71,13 +86,25 @@ class Game {
             this.input.keys[e.code] = true;
             if (e.code === 'KeyB') this.ui.toggleShop(!this.ui.shopScreen.classList.contains('hidden'));
             if (e.code === 'Tab') this.ui.toggleBackpack(!this.ui.backpackScreen.classList.contains('hidden'), this.player);
+
+            // Weapon switching
+            const weaponKeys = ['Digit1', 'Digit2', 'Digit3'];
+            const idx = weaponKeys.indexOf(e.code);
+            if (idx !== -1 && this.player.inventory[idx]) {
+                this.player.currentWeapon = this.player.inventory[idx];
+                this.player.updateWeaponModel();
+                audioSystem.play('ui_hover');
+            }
         });
         window.addEventListener('keyup', e => this.input.keys[e.code] = false);
         window.addEventListener('mousedown', () => {
+            if (!this.gameStarted || this.isGameOver) return;
             if (document.pointerLockElement) {
                 this.input.mouse.down = true;
             } else {
-                this.renderer.domElement.requestPointerLock();
+                this.renderer.domElement.requestPointerLock()?.catch(e => {
+                    console.warn("Pointer lock request failed:", e);
+                });
             }
         });
         window.addEventListener('mouseup', () => this.input.mouse.down = false);
@@ -85,6 +112,10 @@ class Game {
             if (document.pointerLockElement) {
                 const sens = 0.002;
                 this.player.group.rotation.y -= e.movementX * sens;
+                if (this.player.pitch) {
+                    this.player.pitch.rotation.x -= e.movementY * sens;
+                    this.player.pitch.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.player.pitch.rotation.x));
+                }
             }
         });
 
@@ -96,26 +127,43 @@ class Game {
 
     handlePurchase(btn) {
         const cost = parseInt(btn.dataset.cost);
-        const id = btn.parentElement.dataset.id;
+        const item = btn.parentElement;
+        const id = item.dataset.id;
+        const type = item.dataset.type;
+
         if (this.player.coins >= cost) {
             this.player.coins -= cost;
             this.ui.updateCoins(this.player.coins);
-            this.applyUpgrade(id);
+            this.applyUpgrade(id, type);
             audioSystem.play('buy');
         } else {
             audioSystem.play('error');
         }
     }
 
-    applyUpgrade(id) {
-        if (id === 'AK47_ammo') this.player.weapons['AK47'].reserve += 30;
-        if (id === 'health') {
-            this.player.health = Math.min(this.player.maxHealth, this.player.health + 50);
-            this.ui.updatePlayerHealth((this.player.health / this.player.maxHealth) * 100);
+    applyUpgrade(id, type) {
+        if (type === 'weapon') {
+            if (!this.player.inventory.includes(id)) {
+                this.player.inventory.push(id);
+                this.player.currentWeapon = id;
+                this.player.updateWeaponModel();
+            }
+        } else if (type === 'ammo') {
+            if (this.player.weapons[id]) {
+                const amount = id === 'Sniper' ? 10 : (id === 'RPG' ? 5 : (id === 'Grenade' ? 3 : 30));
+                this.player.weapons[id].reserve += amount;
+            }
+        } else if (type === 'upgrade') {
+            if (id === 'medkit') {
+                this.player.health = Math.min(this.player.maxHealth, this.player.health + 50);
+                this.ui.updatePlayerHealth((this.player.health / this.player.maxHealth) * 100);
+            }
         }
     }
 
     start() {
+        this.gameStarted = true;
+        audioSystem.init(); // Initialize audio on user interaction
         document.getElementById('menu-screen').classList.add('hidden');
         this.startWave();
     }
