@@ -152,8 +152,20 @@ export class Player {
 
         audioSystem.play('shoot_' + this.currentWeapon.toLowerCase(), this.group.position);
 
-        // Recoil effect
-        this.camera.position.y += w.recoil;
+        // Step 6: Recoil & Muzzle Flash
+        if (this.gun) {
+            this.gun.position.z += 0.05; // Visual kickback
+            setTimeout(() => { if (this.gun) this.gun.position.z -= 0.05; }, 50);
+
+            // Point light for flash
+            const flash = new THREE.PointLight(0xffaa00, 3, 2);
+            flash.position.set(0, 0, 0.4);
+            this.weaponModel.add(flash);
+            setTimeout(() => this.weaponModel.remove(flash), 50);
+        }
+
+        // Camera recoil
+        this.pitch.rotation.x += w.recoil;
 
         // Raycast logic handled by Game
         return true;

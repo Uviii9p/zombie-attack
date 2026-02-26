@@ -5,6 +5,7 @@ import { MapManager } from './map_v4.js';
 import { MultiplayerManager } from './multiplayer.js';
 import { audioSystem } from './audio.js';
 import { GameUI } from './ui.js';
+import { Soldier } from './soldier.js';
 
 class Game {
     constructor() {
@@ -17,6 +18,7 @@ class Game {
         this.zombieManager = new ZombieManager(this.scene);
         this.mapManager = new MapManager(this.scene);
         this.multiplayer = new MultiplayerManager(this.scene);
+        this.soldiers = [];
         this.socket = null; // Will be set by lobby/auth
         this.input = { keys: {}, mouse: { x: 0, y: 0, down: false } };
 
@@ -169,6 +171,11 @@ class Game {
                 this.player.health = Math.min(this.player.maxHealth, this.player.health + 50);
                 this.ui.updatePlayerHealth((this.player.health / this.player.maxHealth) * 100);
             }
+        } else if (type === 'npc') {
+            const spawnPos = this.player.group.position.clone().add(new THREE.Vector3(Math.random() * 4 - 2, 0, Math.random() * 4 - 2));
+            const soldierType = id === 'bodyguard_rpg' ? 'rpg' : (id === 'bodyguard_sniper' ? 'sniper' : 'ak47');
+            const soldier = new Soldier(this.scene, spawnPos, soldierType);
+            this.soldiers.push(soldier);
         }
     }
 
@@ -253,6 +260,8 @@ class Game {
                 this.ui.updatePlayerHealth((this.player.health / this.player.maxHealth) * 100);
             });
 
+            this.soldiers.forEach(s => s.update(delta, this.zombieManager.zombies, this.scene, this.camera));
+
             // Boss Health Update
             const boss = this.zombieManager.zombies.find(z => z.isBoss && !z.isDead);
             const bossUI = document.getElementById('boss-health-bar');
@@ -285,11 +294,15 @@ class Game {
                     this.startWave();
                 }, 5000);
             }
+
             if (this.multiplayer.isActive) {
                 this.multiplayer.sendPosition(this.player, this.player.currentWeapon);
                 this.multiplayer.update(delta, this.camera);
                 this.multiplayer.sendZombieStates(this.zombieManager.zombies, this.wave);
             }
+
+            // Smooth recoil recovery
+            this.player.pitch.rotation.x = THREE.MathUtils.lerp(this.player.pitch.rotation.x, 0, 0.1);
 
             // Step 7: Smooth camera sway
             if (this.gameStarted) {

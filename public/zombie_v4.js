@@ -265,12 +265,17 @@ export class Zombie {
         }
 
         // Animations
+        // Step 9: Better walking animation (zombie-like)
         const time = performance.now() * 0.005;
-        this.lArm.rotation.x = Math.sin(time) * 0.5 - 1.0;
-        this.rArm.rotation.x = Math.cos(time) * 0.5 - 1.0;
+        this.lArm.rotation.x = Math.sin(time * 0.8) * 0.5 - 1.2;
+        this.rArm.rotation.x = Math.cos(time * 0.9) * 0.5 - 1.2;
 
-        this.lLeg.rotation.x = Math.sin(time * 2) * 0.4;
-        this.rLeg.rotation.x = -Math.sin(time * 2) * 0.4;
+        const legSpeed = this.type === 'runner' ? 3.5 : 2.0;
+        this.lLeg.rotation.x = Math.sin(time * legSpeed) * 0.5;
+        this.rLeg.rotation.x = -Math.sin(time * legSpeed) * 0.5;
+
+        // Slight body hobble
+        this.mesh.rotation.z = Math.sin(time * 0.5) * 0.05;
 
         // Step 3: Force Y position lock
         if (!this.isDead) {
