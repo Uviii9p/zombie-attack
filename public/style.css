@@ -36,20 +36,6 @@ body {
     position: relative;
     background: radial-gradient(circle at center, #111 0%, #000 100%);
     touch-action: none;
-    /* Step 10: Vignette effect */
-    box-shadow: inset 0 0 150px rgba(0, 0, 0, 0.8);
-}
-
-#game-container::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: radial-gradient(circle, transparent 50%, rgba(0, 0, 0, 0.4) 100%);
-    pointer-events: none;
-    z-index: 2;
 }
 
 canvas {
@@ -61,8 +47,6 @@ canvas {
     height: 100% !important;
     z-index: 1;
     pointer-events: auto;
-    /* Step 10: Post-Processing Filter */
-    filter: saturate(1.1) contrast(1.1) brightness(1.05);
 }
 
 #damage-overlay {
