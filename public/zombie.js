@@ -1,13 +1,45 @@
 import * as THREE from 'three';
 import { audioSystem } from './audio.js';
 
+// ======= ZOMBIE TYPES SYSTEM =======
+export const ZOMBIE_TYPES = {
+    NORMAL: 'normal',
+    RUNNER: 'runner',
+    ARMORED: 'armored',
+    SHOOTER: 'shooter',
+    SPITTER: 'spitter',
+    TANK: 'tank',
+    GIANT: 'giant',
+    PHANTOM: 'phantom',
+    SPRINTER: 'sprinter',
+    TOXIC: 'toxic',
+    CRAWLER: 'crawler'
+};
+
+// Get a random zombie type based on weighted probability
+export function getRandomZombieType(wave) {
+    if (wave < 2) return ZOMBIE_TYPES.NORMAL;
+    const rand = Math.random();
+    if (wave >= 8 && rand < 0.05) return ZOMBIE_TYPES.GIANT;
+    if (wave >= 6 && rand < 0.10) return ZOMBIE_TYPES.PHANTOM;
+    if (wave >= 5 && rand < 0.18) return ZOMBIE_TYPES.RUNNER;
+    if (wave >= 4 && rand < 0.28) return ZOMBIE_TYPES.SHOOTER;
+    if (wave >= 4 && rand < 0.38) return ZOMBIE_TYPES.SPITTER;
+    if (wave >= 4 && rand < 0.50) return ZOMBIE_TYPES.TANK;
+    if (wave >= 5 && rand < 0.58) return ZOMBIE_TYPES.ARMORED;
+    if (wave >= 3 && rand < 0.68) return ZOMBIE_TYPES.SPRINTER;
+    if (wave >= 3 && rand < 0.78) return ZOMBIE_TYPES.CRAWLER;
+    if (wave >= 4 && rand < 0.85) return ZOMBIE_TYPES.TOXIC;
+    return ZOMBIE_TYPES.NORMAL;
+}
+
 export class Zombie {
     constructor(scene) {
         this.scene = scene;
         this.health = 75; // 3 bullets at 25 damage each
         this.maxHealth = 75;
-        this.speed = 0.04 + Math.random() * 0.02;
-        this.damage = 10;
+        this.speed = 0.05 + Math.random() * 0.035; // Faster base speed
+        this.damage = 12; // Slightly more damage
         this.attackRange = 2.2;
         this.lastAttack = 0;
         this.attackInterval = 1.6;
@@ -16,7 +48,8 @@ export class Zombie {
         this.riseTime = 0;
         this.dropProcessed = false;
         this.deathPosition = new THREE.Vector3();
-        this.type = 'normal';
+        this.type = ZOMBIE_TYPES.NORMAL;
+        this.armor = 0; // Armor damage reduction (0 to 1)
         this.staggerTime = 0;
         this.knockback = new THREE.Vector3();
         this.flankDir = Math.random() > 0.5 ? 1 : -1;
@@ -25,7 +58,10 @@ export class Zombie {
         this.targetGroundY = 0;
         this.modelLiftOffset = 0;
         this.specialCooldown = 0;
+        this.shootCooldown = 0; // For shooter zombies
+        this.spitCooldown = 0; // For spitter zombies
         this.isClimbing = false;
+        this.isPoisoned = false; // Tracks if this zombie applies poison
         this.isBoss = false;
         this.shockwaveGroup = null;
 
@@ -43,19 +79,42 @@ export class Zombie {
         else colorHex = 0x5c2b29; // Blood Red/Dark
 
         this.originalColor = colorHex;
-        this.bodyMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.9 });
+        // Step 1: High-fidelity Materials (Moist/Distressed Look)
+        this.bodyMat = new THREE.MeshStandardMaterial({
+            color: colorHex,
+            roughness: 0.75, // Slightly moist/oily
+            metalness: 0.1,
+            emissive: 0x000000,
+            emissiveIntensity: 0
+        });
 
-        // Torso
-        const torsoGeo = new THREE.BoxGeometry(0.6 * widthMultiplier, 1.2 * heightMultiplier, 0.4 * widthMultiplier);
+        this.skinMat = new THREE.MeshStandardMaterial({
+            color: 0x556b4f, // Pale greenish skin
+            roughness: 0.65, // More "wet" skin look
+            metalness: 0.12,
+        });
+
+        // Torso with "Deep Wounds"
+        const torsoGeo = new THREE.BoxGeometry(0.6 * widthMultiplier, 1.2 * heightMultiplier, 0.4 * widthMultiplier, 2, 2, 1);
         const torso = new THREE.Mesh(torsoGeo, this.bodyMat);
         torso.position.y = (1.2 * heightMultiplier) / 2 + 0.6;
         torso.castShadow = true;
         this.mesh.add(torso);
 
-        // Legs (translate geometry to pivot from top/hips)
+        // Procedural "Grit": Deep Flesh Wounds
+        if (Math.random() > 0.4) {
+            const wound = new THREE.Mesh(
+                new THREE.BoxGeometry(0.15, 0.25, 0.05),
+                new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0x330000, roughness: 0.3 })
+            );
+            wound.position.set((Math.random() - 0.5) * 0.4, 0.2, 0.21 * widthMultiplier);
+            torso.add(wound);
+        }
+
+        // Legs (Pants / Ripped Fabric)
         const legGeo = new THREE.BoxGeometry(0.25 * widthMultiplier, 0.8 * heightMultiplier, 0.25 * widthMultiplier);
         legGeo.translate(0, - (0.4 * heightMultiplier), 0);
-        const legMat = new THREE.MeshStandardMaterial({ color: 0x1f2326, roughness: 0.9 }); // Dark pants
+        const legMat = new THREE.MeshStandardMaterial({ color: 0x1f2326, roughness: 0.95 });
 
         this.leftLeg = new THREE.Mesh(legGeo, legMat);
         this.leftLeg.position.set(-(0.15 * widthMultiplier), 0.8 * heightMultiplier, 0);
@@ -64,74 +123,124 @@ export class Zombie {
         this.rightLeg = new THREE.Mesh(legGeo, legMat);
         this.rightLeg.position.set((0.15 * widthMultiplier), 0.8 * heightMultiplier, 0);
         this.rightLeg.castShadow = true;
-
         this.mesh.add(this.leftLeg, this.rightLeg);
 
-        // Head
+        // Procedural "Exposed Bone" (on limbs)
+        if (Math.random() > 0.7) {
+            const bone = new THREE.Mesh(
+                new THREE.BoxGeometry(0.08, 0.15, 0.08),
+                new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.5 })
+            );
+            bone.position.set(0, -0.4, 0.1);
+            this.rightLeg.add(bone);
+        }
+
+        // Head (Clouded Hero Eyes & Burst Capillaries)
         const headSize = 0.4 + Math.random() * 0.2;
-        const head = new THREE.Mesh(new THREE.BoxGeometry(headSize, headSize, headSize), new THREE.MeshStandardMaterial({ color: 0x2c3a25 }));
+        const headMat = new THREE.MeshStandardMaterial({ color: 0x2c3a25, roughness: 0.8 });
+        const head = new THREE.Mesh(new THREE.BoxGeometry(headSize, headSize, headSize), headMat);
         head.position.y = (1.2 * heightMultiplier) + 0.6 + (headSize / 2);
         head.castShadow = true;
         head.userData.hitZone = 'head';
         head.name = 'zombieHead';
         this.mesh.add(head);
 
-        // Glowing Red/Yellow Eyes
-        const eyeColor = Math.random() > 0.5 ? 0xff0000 : 0xffaa00;
-        const eyeGeo = new THREE.SphereGeometry(headSize * 0.1, 8, 8);
-        const eyeMat = new THREE.MeshBasicMaterial({ color: eyeColor });
+        // Eye Logic: RED GLOWING aggressive eyes
+        const eyeColor = 0xff0000; // Always red glowing for aggression
+        const eyeGeo = new THREE.SphereGeometry(headSize * 0.12, 12, 12);
+        const eyeMat = new THREE.MeshStandardMaterial({
+            color: eyeColor,
+            emissive: eyeColor,
+            emissiveIntensity: 1.5,
+            transparent: true,
+            opacity: 0.95
+        });
         this.eyeMat = eyeMat;
-        const lEye = new THREE.Mesh(eyeGeo, eyeMat); lEye.position.set(-headSize * 0.3, head.position.y + headSize * 0.1, headSize * 0.51);
-        const rEye = new THREE.Mesh(eyeGeo, eyeMat); rEye.position.set(headSize * 0.3, head.position.y + headSize * 0.1, headSize * 0.51);
+
+        const lEye = new THREE.Mesh(eyeGeo, eyeMat);
+        lEye.position.set(-headSize * 0.3, head.position.y + headSize * 0.1, headSize * 0.51);
+        const rEye = new THREE.Mesh(eyeGeo, eyeMat);
+        rEye.position.set(headSize * 0.3, head.position.y + headSize * 0.1, headSize * 0.51);
         this.mesh.add(lEye, rEye);
 
-        // Arms (outstretched)
+        // Fungal Growths (Stunning Horror style)
+        if (Math.random() > 0.6) {
+            const growthGroup = new THREE.Group();
+            const growthMat = new THREE.MeshStandardMaterial({ color: 0x827d4b, emissive: 0x4a4729, roughness: 0.4 });
+            for (let i = 0; i < 4; i++) {
+                const pod = new THREE.Mesh(new THREE.SphereGeometry(0.08, 6, 6), growthMat);
+                pod.position.set((Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3, 0);
+                pod.scale.set(1, 1, 0.6);
+                growthGroup.add(pod);
+            }
+            growthGroup.position.set(headSize * 0.4, head.position.y + headSize * 0.3, 0);
+            growthGroup.rotation.z = 0.5;
+            this.mesh.add(growthGroup);
+        }
+
+        // Arms
         const armLength = 1.1 * heightMultiplier;
         const armGeo = new THREE.BoxGeometry(0.2 * widthMultiplier, armLength, 0.2 * widthMultiplier);
-        const skinMat = new THREE.MeshStandardMaterial({ color: 0x556b4f }); // Pale greenish-grey skin
-        this.skinMat = skinMat;
 
         this.lArm = new THREE.Mesh(armGeo, this.bodyMat);
         this.lArm.position.set(-(0.4 * widthMultiplier), (1.2 * heightMultiplier) + 0.3, 0.4);
         this.lArm.rotation.x = -Math.PI / 1.8;
         this.lArm.castShadow = true;
 
-        const lHand = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), this.skinMat);
-        lHand.position.y = -armLength / 2 - 0.1;
-        this.lArm.add(lHand);
+        this.lHand = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), this.skinMat);
+        this.lHand.position.y = -armLength / 2 - 0.1;
+        this.lArm.add(this.lHand);
 
         this.rArm = new THREE.Mesh(armGeo, this.bodyMat);
         this.rArm.position.set((0.4 * widthMultiplier), (1.2 * heightMultiplier) + 0.3, 0.4);
         this.rArm.rotation.x = -Math.PI / 1.8;
         this.rArm.castShadow = true;
 
-        const rHand = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), skinMat);
-        rHand.position.y = -armLength / 2 - 0.1;
-        this.rHand = rHand;
-        this.rArm.add(rHand);
-        this.mesh.add(this.lArm, this.rArm); // Arms added here
+        this.rHand = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), this.skinMat);
+        this.rHand.position.y = -armLength / 2 - 0.1;
+        this.rArm.add(this.rHand);
+        this.mesh.add(this.lArm, this.rArm);
 
-        // Fingers / Claws
-        const fingerGeo = new THREE.BoxGeometry(0.04, 0.15, 0.04);
-        const fingerMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+        // Claws
+        const fingerGeo = new THREE.BoxGeometry(0.03, 0.18, 0.03); // Thinner, sharper claws
+        const fingerMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.2 });
         for (let i = 0; i < 3; i++) {
             const f1 = new THREE.Mesh(fingerGeo, fingerMat);
             f1.position.set((i - 1) * 0.06, -0.15, 0.08);
-            lHand.add(f1);
+            this.lHand.add(f1);
             const f2 = new THREE.Mesh(fingerGeo, fingerMat);
             f2.position.set((i - 1) * 0.06, -0.15, 0.08);
-            rHand.add(f2);
+            this.rHand.add(f2);
         }
 
-        // Add "Torn Clothes" details
-        for (let i = 0; i < 6; i++) {
-            const tear = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.22), this.bodyMat);
+        // Torn/Bloody Clothes details
+        for (let i = 0; i < 8; i++) {
+            const bloodColor = Math.random() > 0.5 ? 0x2c0000 : 0x5c2b29;
+            const bloodMat = new THREE.MeshStandardMaterial({ color: bloodColor, roughness: 0.4 });
+            const tear = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.3), bloodMat);
             const side = Math.random() > 0.5 ? 0.21 * widthMultiplier : -0.21 * widthMultiplier;
             tear.position.set((Math.random() - 0.5) * 0.6 * widthMultiplier, 1.2 * heightMultiplier * Math.random() + 0.6, side);
             tear.rotation.z = Math.random() * Math.PI;
             tear.rotation.y = side > 0 ? 0 : Math.PI;
             this.mesh.add(tear);
         }
+
+        this.scene.add(this.mesh);
+
+        // AAA Performance: Frustum Culling & Shadows
+        this.mesh.frustumCulled = true;
+        this.mesh.traverse(o => {
+            if (o.isMesh) {
+                o.frustumCulled = true;
+                // Only cast shadows from main body parts
+                o.castShadow = true;
+                o.receiveShadow = false;
+            }
+        });
+
+        // Hide small details by default, will show based on LOD
+        if (this.lHand) this.lHand.traverse(f => { if (f !== this.lHand) f.visible = false; });
+        if (this.rHand) this.rHand.traverse(f => { if (f !== this.rHand) f.visible = false; });
 
         this.mesh.add(this.lArm, this.rArm);
         this.scene.add(this.mesh);
@@ -172,94 +281,123 @@ export class Zombie {
         this.deathAnimationTime = undefined;
         this.staggerTime = 0;
         this.knockback.set(0, 0, 0);
+        this.velocityY = 0; // Initialize gravity velocity
         this.enraged = false;
         this.attackRange = 2.2;
+        this.armor = 0;
+        this.shootCooldown = 0;
+        this.spitCooldown = 0;
+        this.weapon = null; // Reset weapon for recycled zombies
+        this.mesh.scale.set(1, 1, 1); // Reset scale for recycled zombies
+        this.speed = 0.05 + Math.random() * 0.035; // Reset base speed
+        this.damage = 12; // Reset base damage
 
-        // Apply Special Zombie Types based on wave
-        const typeRand = Math.random();
-        if (wave >= 8 && typeRand < 0.11) {
+        // Reset emissive (spitter glow fix)
+        this.bodyMat.emissive.setHex(0x000000);
+        this.bodyMat.emissiveIntensity = 0;
+        this.bodyMat.color.setHex(this.originalColor);
+
+        // Apply Special Zombie Types using the new type system
+        const assignedType = getRandomZombieType(wave);
+        this.type = assignedType;
+        this.isPhantom = false;
+        this.bodyMat.transparent = false;
+        this.bodyMat.opacity = 1.0;
+        this.helmet.visible = false;
+
+        if (assignedType === ZOMBIE_TYPES.GIANT) {
             // GIANT: Massive HP, very slow, huge size, high damage
-            this.type = 'giant';
             this.maxHealth = 1000 + (wave * 50);
-            this.speed = 0.015;
+            this.speed = 0.025; // was 0.015
             this.damage = 60;
             this.mesh.scale.set(3.5, 3.5, 3.5);
-            this.bodyMat.color.setHex(0x2c0e0e); // Dark bloody brown
-            this.isPhantom = false;
-            this.bodyMat.transparent = false;
-            this.bodyMat.opacity = 1.0;
-        } else if (wave >= 5 && typeRand < 0.23) {
-            // RUNNER: Fast, squishy, red
-            this.type = 'runner';
-            this.maxHealth = 40 + (wave * 2);
-            this.speed = 0.09 + Math.random() * 0.03;
-            this.damage = 5;
-            this.mesh.scale.set(0.85, 0.85, 0.85);
-            this.bodyMat.color.setHex(0x8b0000); // Crimson
-            this.isPhantom = false;
-            this.bodyMat.transparent = false;
-            this.bodyMat.opacity = 1.0;
-        } else if (wave >= 6 && typeRand > 0.9) {
+            this.bodyMat.color.setHex(0x2c0e0e);
+        } else if (assignedType === ZOMBIE_TYPES.RUNNER) {
+            // RUNNER: Fast, squishy, red — extra forward lunge
+            this.maxHealth = 70 + (wave * 2);
+            this.speed = 0.09 + Math.random() * 0.04; // was 0.06
+            this.damage = 8;
+            this.mesh.scale.set(0.9, 0.9, 0.9);
+            this.bodyMat.color.setHex(0x8b0000);
+        } else if (assignedType === ZOMBIE_TYPES.PHANTOM) {
             // PHANTOM: Translucent, fast, low damage
-            this.type = 'phantom';
             this.maxHealth = 60 + (wave * 3);
-            this.speed = 0.07 + Math.random() * 0.04;
+            this.speed = 0.11 + Math.random() * 0.05; // was 0.07
             this.damage = 8;
             this.mesh.scale.set(1.1, 1.1, 1.1);
-            this.bodyMat.color.setHex(0x88ffff); // Cyan ghost
+            this.bodyMat.color.setHex(0x88ffff);
             this.isPhantom = true;
             this.bodyMat.transparent = true;
             this.bodyMat.opacity = 0.4;
-        } else if (wave >= 4 && typeRand < 0.35) {
+        } else if (assignedType === ZOMBIE_TYPES.SPRINTER) {
+            // SPRINTER: Extremely aggressive & fast
+            this.maxHealth = 35 + (wave * 2);
+            this.speed = 0.22 + Math.random() * 0.06; // was 0.16
+            this.damage = 6;
+            this.mesh.scale.set(0.8, 0.9, 0.8);
+            this.bodyMat.color.setHex(0xb22222);
+        } else if (assignedType === ZOMBIE_TYPES.TANK) {
             // TANK: Huge, slow, high damage, massive HP
-            this.type = 'tank';
             this.maxHealth = 250 + (wave * 20);
-            this.speed = 0.02 + Math.random() * 0.01;
+            this.speed = 0.035 + Math.random() * 0.015; // was 0.02
             this.damage = 35;
             this.mesh.scale.set(1.6, 1.6, 1.6);
-            this.bodyMat.color.setHex(0x1a1a1a); // Charcoal black
-            this.isPhantom = false;
-            this.bodyMat.transparent = false;
-            this.bodyMat.opacity = 1.0;
-        } else if (wave >= 4 && typeRand < 0.55) {
+            this.bodyMat.color.setHex(0x1a1a1a);
+        } else if (assignedType === ZOMBIE_TYPES.TOXIC) {
             // TOXIC: poison attacker
-            this.type = 'toxic';
             this.maxHealth = 95 + (wave * 6);
-            this.speed = 0.05 + Math.random() * 0.02;
+            this.speed = 0.08 + Math.random() * 0.03; // was 0.05
             this.damage = 12 + Math.floor(wave * 0.8);
             this.mesh.scale.set(1.0, 1.0, 1.0);
             this.bodyMat.color.setHex(0x4fbf4f);
-            this.isPhantom = false;
-            this.bodyMat.transparent = false;
-            this.bodyMat.opacity = 1.0;
-        } else if (wave >= 3 && typeRand < 0.72) {
+        } else if (assignedType === ZOMBIE_TYPES.CRAWLER) {
             // CRAWLER: low, harder to hit
-            this.type = 'crawler';
             this.maxHealth = 60 + (wave * 4);
-            this.speed = 0.06 + Math.random() * 0.02;
+            this.speed = 0.09 + Math.random() * 0.03; // was 0.06
             this.damage = 9 + Math.floor(wave * 0.6);
             this.mesh.scale.set(1.1, 0.5, 1.1);
             this.bodyMat.color.setHex(0x5e5148);
-            this.isPhantom = false;
-            this.bodyMat.transparent = false;
-            this.bodyMat.opacity = 1.0;
             this.attackRange = 1.7;
-        } else if (wave >= 5 && typeRand < 0.82) {
-            // ARMORED: reduced headshot damage
-            this.type = 'armored';
-            this.maxHealth = 180 + (wave * 10);
-            this.speed = 0.032 + Math.random() * 0.01;
-            this.damage = 18 + Math.floor(wave * 0.8);
+        } else if (assignedType === ZOMBIE_TYPES.ARMORED) {
+            // ARMORED: 50% damage reduction via armor property
+            this.maxHealth = 250 + (wave * 12);
+            this.speed = 0.055 + Math.random() * 0.02; // was 0.035
+            this.damage = 25 + Math.floor(wave * 1.5);
+            this.armor = 0.5; // 50% damage reduction
             this.mesh.scale.set(1.2, 1.2, 1.2);
-            this.bodyMat.color.setHex(0x6b7078);
-            this.isPhantom = false;
-            this.bodyMat.transparent = false;
-            this.bodyMat.opacity = 1.0;
-            this.helmet.visible = true; // Show helmet for armored
+            this.bodyMat.color.setHex(0x555555);
+            this.helmet.visible = true;
+        } else if (assignedType === ZOMBIE_TYPES.SHOOTER) {
+            // SHOOTER: Has a gun, shoots bullets at player
+            this.maxHealth = 120 + (wave * 8);
+            this.speed = 0.05 + Math.random() * 0.015; // was 0.035
+            this.damage = 18 + Math.floor(wave * 1.2);
+            this.shootCooldown = 2.0;
+            this.mesh.scale.set(1.05, 1.05, 1.05);
+            this.bodyMat.color.setHex(0x2a2a3a); // Dark blue-grey
+            this.weapon = 'gun'; // Force gun weapon
+        } else if (assignedType === ZOMBIE_TYPES.SPITTER) {
+            // SPITTER: Spits poison at player, applies poison DOT
+            this.maxHealth = 90 + (wave * 5);
+            this.speed = 0.06 + Math.random() * 0.02; // was 0.04
+            this.damage = 10 + Math.floor(wave * 0.6);
+            this.spitCooldown = 3.0;
+            this.mesh.scale.set(1.0, 1.0, 1.0);
+            this.bodyMat.color.setHex(0x33aa33); // Toxic green
+            this.bodyMat.emissive.setHex(0x115511);
+            this.bodyMat.emissiveIntensity = 0.4;
         } else {
-            this.isPhantom = false;
-            this.bodyMat.transparent = false;
+            // NORMAL zombie
+            this.maxHealth = 75;
+            this.speed = 0.07 + Math.random() * 0.02; // increased base normal speed
+            this.type = ZOMBIE_TYPES.NORMAL;
         }
+
+        // ====== WAVE DIFFICULTY SCALING ======
+        // Every wave: zombies get stronger
+        this.maxHealth += wave * 20;
+        this.speed += wave * 0.005; // increased from 0.002 to 0.005 per wave
+        this.damage += wave * 2;
 
         this.health = this.maxHealth;
         this.specialCooldown = 0;
@@ -267,12 +405,18 @@ export class Zombie {
         this.enraged = false;
         this.isDead = false;
         this.dropProcessed = false;
-        this.modelLiftOffset = 0;
         this.targetGroundY = spawnPosition.y;
+
+        // Force Three.js to update the matrix after scale/rotation resets
+        // Without this, the bound box uses the old "dead" (lying down) rotation
+        this.mesh.updateMatrixWorld(true);
 
         const box = new THREE.Box3().setFromObject(this.mesh);
         if (isFinite(box.min.y) && isFinite(box.max.y)) {
-            const lift = Math.max(0, spawnPosition.y - box.min.y);
+            // Cap the lift to prevent any ridiculous offsets from glitchy bounds
+            const rawLift = Math.max(0, spawnPosition.y - box.min.y);
+            const lift = Math.min(2.0, rawLift);
+
             this.modelLiftOffset = lift;
             this.mesh.position.y += lift;
             this.targetGroundY = spawnPosition.y + lift;
@@ -283,12 +427,19 @@ export class Zombie {
             this.weaponMesh = null;
         }
 
-        this.weapon = null;
-        if (wave >= 3) {
-            const rand = Math.random();
-            if (wave >= 5 && rand < 0.1) this.weapon = 'grenade';
-            else if (wave >= 4 && rand < 0.2) this.weapon = 'gun';
-            else if (rand < 0.25) this.weapon = 'pistol';
+        // Weapon assignment (only if not already assigned by type)
+        if (!this.weapon) {
+            if (wave >= 2) {
+                const rand = Math.random();
+                if (wave >= 5 && rand < 0.12) this.weapon = 'grenade';
+                else if (wave >= 4 && rand < 0.28) this.weapon = 'gun';
+                else if (wave >= 2 && rand < 0.4) this.weapon = 'pistol';
+
+                // Armored zombies heavily prefer guns
+                if (this.type === ZOMBIE_TYPES.ARMORED && Math.random() > 0.3) {
+                    this.weapon = 'gun';
+                }
+            }
         }
 
         if (this.weapon === 'pistol' || this.weapon === 'gun') {
@@ -297,87 +448,154 @@ export class Zombie {
             this.weaponMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, wLen), new THREE.MeshStandardMaterial({ color: isPistol ? 0x222222 : 0x111111 }));
             this.weaponMesh.position.set(0, -0.15, wLen / 2 - 0.1);
             if (this.rHand) this.rHand.add(this.weaponMesh);
+            this.attackRange = isPistol ? 18 : 28;
+            this.attackInterval = isPistol ? 3.0 : 1.5;
         } else if (this.weapon === 'grenade') {
             this.weaponMesh = new THREE.Mesh(new THREE.SphereGeometry(0.15), new THREE.MeshStandardMaterial({ color: 0x334433 }));
             this.weaponMesh.position.set(0, -0.2, 0.1);
             if (this.rHand) this.rHand.add(this.weaponMesh);
+            this.attackRange = 22;
+            this.attackInterval = 4.5;
+        }
+
+        // Toxic/Spitter spread
+        if (this.type === ZOMBIE_TYPES.TOXIC) {
+            this.attackRange = 14;
+            this.attackInterval = 2.5;
+        }
+        if (this.type === ZOMBIE_TYPES.SPITTER) {
+            this.attackRange = 16;
+            this.attackInterval = 3.0;
+        }
+        // Shooter zombies use gun range
+        if (this.type === ZOMBIE_TYPES.SHOOTER) {
+            this.attackRange = 25;
+            this.attackInterval = 2.0;
         }
     }
-
     takeDamage(amount, hitInfo = null) {
         if (this.isDead) return false;
-        let applied = amount;
-        if (this.type === 'armored' && hitInfo?.isHeadshot) applied *= 0.45;
-        if (this.type === 'armored' && !hitInfo?.isHeadshot) applied *= 0.8;
-        if (this.type === 'tank') applied *= 0.85;
 
+        // Apply armor-based damage reduction
+        let applied = amount * (1 - this.armor);
+
+        // Additional type-based multipliers
+        if (this.type === ZOMBIE_TYPES.ARMORED && hitInfo?.isHeadshot) applied *= 0.45;
+        if (this.type === ZOMBIE_TYPES.ARMORED && !hitInfo?.isHeadshot) applied *= 0.8;
+        if (this.type === ZOMBIE_TYPES.TANK) applied *= 0.85;
+
+        this.health -= applied;
+
+        // Knockback logic
         this.staggerTime = Math.min(0.25, 0.08 + applied / 450);
         if (hitInfo?.knockback) {
             this.knockback.copy(hitInfo.knockback).multiplyScalar(Math.min(0.22, applied / 900));
             this.knockback.y = 0;
         }
 
-        this.health -= applied;
+        // AAA Blood Burst
+        if (hitInfo && hitInfo.point) {
+            this.createBloodBurst(hitInfo.point, hitInfo.knockback);
+        }
 
         // Rage Mode (Below 30% Health)
         if (!this.enraged && this.health < (this.maxHealth * 0.3) && this.health > 0) {
             this.enraged = true;
             this.speed *= 1.5;
-            this.bodyMat.emissive.setHex(0x330000);
-            this.bodyMat.emissiveIntensity = 1.0;
+            if (this.bodyMat) {
+                this.bodyMat.emissive.setHex(0x330000);
+                this.bodyMat.emissiveIntensity = 1.0;
+            }
             if (this.isBoss) {
                 window.dispatchEvent(new CustomEvent('boss-enrage'));
             }
         }
 
         if (this.health <= 0) {
+            this.deathPosition.copy(this.mesh.position);
             this.die();
             return true;
         }
         return false;
     }
 
-    showHitEffect() {
-        if (this.isDead) return;
-        // Flash effect
-        this.mesh.traverse(o => { if (o.material) { o.material.emissive?.set(0x990000); o.material.emissiveIntensity = 1.5; } });
-        setTimeout(() => { if (this.mesh) this.mesh.traverse(o => { if (o.material) { o.material.emissive?.set(0x000000); o.material.emissiveIntensity = 0; } }); }, 80);
+    createBloodBurst(point, direction) {
+        if (!point || this.isDead) return;
+        const count = this.isMobile ? 8 : 16;
+        const mat = new THREE.MeshBasicMaterial({ color: 0x880000 });
+        const geo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
 
-        // Use Particle system if possible, otherwise meshes
-        for (let i = 0; i < 8; i++) {
-            const blood = new THREE.Mesh(
-                new THREE.SphereGeometry(0.08, 6, 6),
-                new THREE.MeshBasicMaterial({ color: 0xcc0000, transparent: true, opacity: 0.9 })
-            );
-            const burstDir = new THREE.Vector3((Math.random() - 0.5), Math.random() * 0.5 + 0.5, (Math.random() - 0.5)).normalize();
-            blood.position.copy(this.mesh.position).add(new THREE.Vector3(0, 1.5, 0));
-            this.scene.add(blood);
+        for (let i = 0; i < count; i++) {
+            const p = new THREE.Mesh(geo, mat);
+            p.position.copy(point);
+            this.scene.add(p);
 
-            const life = 600 + Math.random() * 400;
-            const startTime = Date.now();
-            const animateBlood = () => {
-                if (Date.now() - startTime > life) {
-                    this.scene.remove(blood);
-                    blood.geometry.dispose();
-                    blood.material.dispose();
-                    return;
+            const vel = new THREE.Vector3((Math.random() - 0.5) * 0.4, Math.random() * 0.4, (Math.random() - 0.5) * 0.4);
+            if (direction) vel.add(direction.clone().multiplyScalar(0.2));
+
+            const start = Date.now();
+            const anim = () => {
+                const age = Date.now() - start;
+                if (age > 600) {
+                    this.scene.remove(p); if (p.geometry) p.geometry.dispose(); if (p.material) p.material.dispose(); return;
                 }
-                blood.position.addScaledVector(burstDir, 0.1);
-                burstDir.y -= 0.02; // Gravity for blood
-                requestAnimationFrame(animateBlood);
+                p.position.add(vel);
+                vel.y -= 0.015;
+                requestAnimationFrame(anim);
             };
-            animateBlood();
+            anim();
         }
-        audioSystem.playZombieHit();
     }
 
-    update(delta, player, house, fence, onAttack, walls = []) {
+    showHitEffect() {
+        if (this.isDead) return;
+        audioSystem.playZombieHit();
+        // Emissive Flash
+        this.mesh.traverse(o => {
+            if (o.material) {
+                o.material.emissive?.set(0x990000);
+                o.material.emissiveIntensity = 1.5;
+            }
+        });
+        setTimeout(() => {
+            if (this.mesh) this.mesh.traverse(o => {
+                if (o.material) {
+                    o.material.emissive?.set(0x000000);
+                    o.material.emissiveIntensity = 0;
+                }
+            });
+        }, 80);
+    }
+
+    update(delta, player, house, fence, onAttack, obstacles = []) {
         if (this.specialCooldown > 0) this.specialCooldown -= delta;
+        const obstaclesAndOthers = obstacles;
+
+        const distToPlayer = player ? this.mesh.position.distanceTo(player.position) : 999;
+
+        // ======= SHOOTER ZOMBIE COOLDOWN =======
+        if (this.type === ZOMBIE_TYPES.SHOOTER && !this.isDead && player) {
+            this.shootCooldown -= delta;
+            if (this.shootCooldown <= 0 && distToPlayer < this.attackRange) {
+                // Fire bullet at player
+                this.shootBulletFromZombie(player);
+                this.shootCooldown = 2.0;
+            }
+        }
+
+        // ======= SPITTER ZOMBIE COOLDOWN =======
+        if (this.type === ZOMBIE_TYPES.SPITTER && !this.isDead && player) {
+            this.spitCooldown -= delta;
+            if (this.spitCooldown <= 0 && distToPlayer < this.attackRange) {
+                // Spit poison at player
+                this.spitPoison(player);
+                this.spitCooldown = 3.0;
+            }
+        }
 
         // Boss Special Attack (Shockwave)
         if (this.isBoss && this.specialCooldown <= 0 && !this.isDead && !this.isRising) {
-            const dist = this.mesh.position.distanceTo(player.position);
-            if (dist < 10) {
+            if (distToPlayer < 10) {
                 this.bossSpecialAttack(player, onAttack);
             }
         }
@@ -408,14 +626,45 @@ export class Zombie {
             this.staggerTime -= delta;
             this.mesh.rotation.z = Math.sin(Date.now() * 0.03) * 0.12;
             this.mesh.position.add(this.knockback);
-            if (this.mesh.position.y < this.targetGroundY) this.mesh.position.y = this.targetGroundY;
+            this.mesh.position.y = this.targetGroundY; // Strict lock
             this.knockback.multiplyScalar(0.85);
             return;
+        }
+
+        // Breathing Animation (Realistic 16K feel)
+        const breathe = Math.sin(Date.now() * 0.002) * 0.015;
+        this.mesh.position.y = this.targetGroundY + breathe;
+
+        // AAA LOD Logic (Performance)
+        if (this.mesh.visible && !this.isDead) {
+            const lodDist = distToPlayer;
+            const detailVisible = lodDist < 25;
+
+            if (this.lHand) {
+                this.lHand.children.forEach(c => c.visible = detailVisible);
+            }
+            if (this.rHand) {
+                this.rHand.children.forEach(c => c.visible = detailVisible);
+            }
+
+            // Shadows optimization: stop casting shadows if very far away
+            this.mesh.traverse(o => {
+                if (o.isMesh) {
+                    o.castShadow = lodDist < 45;
+                }
+            });
         }
 
         // Night-time Glowing Eyes Logic
         const hour = (Date.now() / 1000 % 120) / 120 * 24;
         const isNight = hour < 6 || hour > 18;
+
+        // Realistic Proximity Growl
+        if (player && distToPlayer < 10) {
+            if (Math.random() < 0.005) {
+                audioSystem.playZombieGroan();
+            }
+        }
         if (this.eyeMat) {
             this.eyeMat.opacity = isNight ? 1.0 : 0.2;
         }
@@ -457,7 +706,6 @@ export class Zombie {
         }
 
         const pos = this.mesh.position;
-        const distToPlayer = pos.distanceTo(player.position);
         const distToHouse = new THREE.Vector2(pos.x, pos.z).length(); // Distance from center (0,0)
 
         // Target Logic
@@ -503,7 +751,7 @@ export class Zombie {
                 stopDist = 14.5;
             }
         }
-        if (this.type === 'crawler' && targetType === 'player') {
+        if (this.type === ZOMBIE_TYPES.CRAWLER && targetType === 'player') {
             stopDist = 1.25;
         }
 
@@ -532,14 +780,29 @@ export class Zombie {
             targetType === 'gate' ? pos.distanceTo(gatePos) : distToHouse;
 
         if (distToTarget > stopDist) {
-            // Smart movement logic (Obstacle Avoidance)
+            // Smart movement logic (Obstacle Avoidance + Separation)
             const direction = new THREE.Vector3().subVectors(actualTargetPos, pos).normalize();
             direction.y = 0;
+
+            // Separation Force (Avoid Overlapping)
+            const separation = new THREE.Vector3();
+            for (let other of obstaclesAndOthers) {
+                if (other === this.mesh) continue;
+                const otherPos = other.position;
+                if (!otherPos) continue;
+
+                const dist = pos.distanceTo(otherPos);
+                if (dist < 2.0) {
+                    const diff = new THREE.Vector3().subVectors(pos, otherPos).normalize();
+                    separation.add(diff.multiplyScalar(0.1 / (dist + 0.1)));
+                }
+            }
+            direction.add(separation).normalize();
 
             // Smart Steering (Raycast Forward)
             const forward = direction.clone();
             const raycaster = new THREE.Raycaster(pos.clone().add(new THREE.Vector3(0, 0.8, 0)), forward, 0, 3.5);
-            const obsIntersects = raycaster.intersectObjects(walls);
+            const obsIntersects = raycaster.intersectObjects(obstacles);
 
             let steering = false;
             if (obsIntersects.length > 0) {
@@ -550,9 +813,8 @@ export class Zombie {
                 // 🧗 CLIMBING SYSTEM
                 if (obsHeight < 4 && distToObs < 1.0) {
                     this.isClimbing = true;
+                    // Move position up, but GROUND detection will handle the rest in next frame
                     pos.y += 0.08 * (delta * 60);
-                    // Temporarily lift target ground Y to allow climbing
-                    this.targetGroundY = Math.max(this.targetGroundY, pos.y);
                 } else if (distToObs < 3.0) {
                     // Avoidance steering
                     direction.x += this.flankDir * 0.8;
@@ -571,7 +833,9 @@ export class Zombie {
 
             if (this.chargeTimer > 0) this.chargeTimer -= delta;
             const chargeMul = this.chargeTimer > 0 ? 2.4 : 1;
-            const moveAmt = this.speed * chargeMul * delta * 60;
+            // Runner forward lunge: 1.5x speed boost (applied safely before ground snap)
+            const runnerMul = (this.type === ZOMBIE_TYPES.RUNNER) ? 2.5 : 1;
+            const moveAmt = this.speed * chargeMul * runnerMul * delta * 60;
             const nextPos = pos.clone().add(direction.multiplyScalar(moveAmt));
 
             // Small obstacle jitter fix
@@ -580,12 +844,12 @@ export class Zombie {
             } else {
                 // Wall Collision Check (Final safety)
                 let hit = false;
-                if (walls.length > 0) {
+                if (obstacles.length > 0) {
                     const zBox = new THREE.Box3().setFromCenterAndSize(
                         nextPos.clone().add(new THREE.Vector3(0, 0.8, 0)),
                         new THREE.Vector3(0.6, 1.6, 0.6)
                     );
-                    for (let wall of walls) {
+                    for (let wall of obstacles) {
                         if (wall.userData.type === 'floor') continue;
                         const wallBox = new THREE.Box3().setFromObject(wall);
                         if (zBox.intersectsBox(wallBox)) {
@@ -597,19 +861,59 @@ export class Zombie {
                 if (!hit) pos.copy(nextPos);
             }
 
-            // Strict Y-axis clamping to prevent underground clipping
-            if (!this.isClimbing && pos.y < this.targetGroundY) {
-                pos.y = this.targetGroundY;
+            // Ground Snap Logic (Prevent Floating/Underground)
+            if (this.groundMesh) {
+                // Raycast from slightly above current position to find ground
+                this.raycaster.set(pos.clone().add(new THREE.Vector3(0, 5, 0)), this.down);
+                const groundInt = this.raycaster.intersectObject(this.groundMesh, true);
+                if (groundInt.length > 0) {
+                    const groundY = groundInt[0].point.y + (this.modelLiftOffset || 0);
+
+                    if (this.isClimbing) {
+                        // While climbing, allow Y to be higher than ground, but not lower
+                        this.targetGroundY = Math.max(groundY, pos.y);
+                    } else {
+                        // Not climbing: Smoothly snap to true ground
+                        this.targetGroundY = groundY;
+                    }
+                }
             }
+
+            // ==== PHYSICS & GRAVITY ====
+            const gravity = 20.0; // Gravity acceleration
+            this.velocityY -= gravity * delta; // Accelerate downward
+            this.mesh.position.y += this.velocityY * delta; // Apply velocity to position
+
+            // Ground Collision
+            if (this.mesh.position.y <= this.targetGroundY) {
+                this.mesh.position.y = this.targetGroundY; // Snap to ground
+                this.velocityY = 0; // Stop falling
+            } else if (this.isClimbing) {
+                // Climbing exception (allow them to move up over obstacles)
+                this.velocityY = Math.max(0, this.velocityY);
+            }
+
+            // ======= AGGRESSIVE AI MOVEMENT =======
+            // Look at player aggressively (lock Y rotation only)
+            this.mesh.lookAt(actualTargetPos.x, this.mesh.position.y, actualTargetPos.z);
+
             // Shambling / Running animation
-            const isRunning = this.type === 'runner' || this.enraged;
+            const isRunning = this.type === ZOMBIE_TYPES.RUNNER || this.type === ZOMBIE_TYPES.SPRINTER || this.enraged;
             const animSpeed = isRunning ? 0.012 : 0.005;
             const time = Date.now() * animSpeed;
 
             // Bobbing motion
             this.mesh.position.y += Math.sin(time * 12) * 0.02;
-            this.mesh.rotation.z = Math.sin(time * 8) * 0.08;
-            this.mesh.rotation.x = Math.sin(time * 6) * 0.05;
+
+            // 🔥 Aggressive wobble animation (makes them look menacing)
+            this.mesh.rotation.z = Math.sin(Date.now() * 0.01) * 0.02;
+
+            // ⚠️ FORCE GROUND LOCK (Only if they somehow clip)
+            if (this.mesh.position.y < this.targetGroundY) {
+                this.mesh.position.y = this.targetGroundY;
+                this.velocityY = 0;
+            }
+            this.mesh.rotation.x = 0;
 
             if (Math.random() < 0.005) audioSystem.playZombieGroan();
             const legFreq = isRunning ? 4.5 : 2.5;
@@ -627,6 +931,14 @@ export class Zombie {
                 this.lArm.rotation.x = -Math.PI / 1.8 + Math.cos(time * 10) * 0.2;
                 this.rArm.rotation.x = -Math.PI / 1.8 - Math.cos(time * 10) * 0.2;
             }
+
+            // AAA Footsteps (Spatial)
+            if (Math.abs(legSwing) > 0.5 && !this._lastStep) {
+                this._lastStep = true;
+                if (distToPlayer < 18) audioSystem.playZombieStep();
+            } else if (Math.abs(legSwing) < 0.1) {
+                this._lastStep = false;
+            }
         } else {
             // Attack logic (includes gate breaking)
             if (targetType === 'gate' || targetType === 'fence') {
@@ -643,16 +955,30 @@ export class Zombie {
 
             const now = performance.now() / 1000;
             if (now - this.lastAttack > this.attackInterval) {
-                if (this.type === 'toxic' && targetType === 'player') {
+                if (this.type === ZOMBIE_TYPES.TOXIC && targetType === 'player') {
+                    // Toxic Spit Attack
                     onAttack('player', this.damage * 0.4);
+                    this.createToxicSpit(actualTargetPos);
                 }
+
+                // Spitter applies poison DOT on hit
+                if (this.type === ZOMBIE_TYPES.SPITTER && targetType === 'player') {
+                    onAttack('player', this.damage * 0.3);
+                    this.spitPoison(player);
+                    // Dispatch poison event to player
+                    window.dispatchEvent(new CustomEvent('player-poisoned', { detail: { damage: 5, duration: 5 } }));
+                }
+
                 if (this.weapon === 'grenade') {
                     onAttack(targetType === 'fence' ? 'fence' : (targetType === 'house' ? 'house' : 'player'), this.damage * 4);
                     this.weapon = null;
                     if (this.weaponMesh) { this.rHand.remove(this.weaponMesh); this.weaponMesh = null; }
                 } else if (this.weapon === 'gun' || this.weapon === 'pistol') {
+                    // Zombie fires gun
                     onAttack(targetType === 'fence' ? 'fence' : (targetType === 'house' ? 'house' : 'player'), this.weapon === 'gun' ? this.damage * 1.5 : this.damage);
+                    if (this.weaponMesh) this.showMuzzleFlash();
                 } else {
+                    // Melee attack
                     onAttack(targetType === 'fence' ? 'fence' : (targetType === 'house' ? 'house' : 'player'), this.damage);
                 }
 
@@ -660,9 +986,157 @@ export class Zombie {
                 this.mesh.traverse(o => { if (o.material) o.material.emissive?.set(0x550000); });
                 setTimeout(() => { if (this.mesh) this.mesh.traverse(o => { if (o.material) o.material.emissive?.set(0x000000); }); }, 300);
             }
-            this.mesh.lookAt(actualTargetPos.x, this.targetGroundY, actualTargetPos.z);
-            this.mesh.position.y = this.targetGroundY;
+            this.mesh.lookAt(actualTargetPos.x, this.mesh.position.y, actualTargetPos.z);
+
+            // ⚠️ ANTI-FLY / ANTI-BUG PROTECTIONS
+            if (this.mesh.position.y < this.targetGroundY - 0.01) {
+                this.mesh.position.y = this.targetGroundY;
+                this.velocityY = 0;
+            }
+            this.mesh.rotation.x = 0; // Prevent tilt forward/backward
+            this.mesh.rotation.z = 0; // Prevent rotation glitches
         }
+
+        // ======= ABSOLUTE GROUND FLOOR =======
+        // Final safety: NEVER let any zombie go below ground Y=0
+        if (!this.isDead && this.mesh.position.y < 0) {
+            this.mesh.position.y = Math.max(0, this.targetGroundY);
+            this.velocityY = 0;
+        }
+    }
+
+    createToxicSpit(targetPos) {
+        if (!this.mesh) return;
+        const geo = new THREE.SphereGeometry(0.15);
+        const mat = new THREE.MeshBasicMaterial({ color: 0x4fbf4f, transparent: true, opacity: 0.8 });
+        const spit = new THREE.Mesh(geo, mat);
+        spit.position.copy(this.mesh.position);
+        spit.position.y += 1.5; // Start near mouth
+        this.scene.add(spit);
+
+        const dist = spit.position.distanceTo(targetPos);
+        const timeToHit = Math.min(300, dist * 30);
+        const startPos = spit.position.clone();
+
+        const animStart = Date.now();
+        const anim = () => {
+            const age = Date.now() - animStart;
+            if (age > timeToHit) {
+                this.scene.remove(spit); spit.geometry.dispose(); spit.material.dispose();
+                return;
+            }
+            const t = age / timeToHit;
+            spit.position.lerpVectors(startPos, targetPos, t);
+            // Parabola arch
+            spit.position.y += Math.sin(t * Math.PI) * 1.5;
+            requestAnimationFrame(anim);
+        };
+        anim();
+    }
+
+    // ======= SHOOTER ZOMBIE: Fire bullet at player =======
+    shootBulletFromZombie(player) {
+        if (!this.mesh || !player) return;
+        const bulletGeo = new THREE.SphereGeometry(0.08, 6, 6);
+        const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, emissive: 0xffaa00 });
+        const bullet = new THREE.Mesh(bulletGeo, bulletMat);
+
+        bullet.position.copy(this.mesh.position);
+        bullet.position.y += 1.4; // Fire from chest height
+
+        const direction = new THREE.Vector3()
+            .subVectors(player.position, bullet.position)
+            .normalize();
+        direction.y = 0; // Flat trajectory
+
+        this.scene.add(bullet);
+        if (this.weaponMesh) this.showMuzzleFlash();
+        audioSystem.playShootAK();
+
+        const speed = 1.2;
+        const startTime = Date.now();
+        const animBullet = () => {
+            const age = Date.now() - startTime;
+            if (age > 2000) {
+                this.scene.remove(bullet);
+                bullet.geometry.dispose();
+                bullet.material.dispose();
+                return;
+            }
+            bullet.position.addScaledVector(direction, speed);
+            bullet.position.y = Math.max(0.3, bullet.position.y); // Keep above ground
+
+            // Hit detection against player
+            if (player && bullet.position.distanceTo(player.position) < 1.5) {
+                window.dispatchEvent(new CustomEvent('zombie-bullet-hit', { detail: { damage: this.damage * 0.8 } }));
+                this.scene.remove(bullet);
+                bullet.geometry.dispose();
+                bullet.material.dispose();
+                return;
+            }
+            requestAnimationFrame(animBullet);
+        };
+        animBullet();
+    }
+
+    // ======= SPITTER ZOMBIE: Spit poison at player =======
+    spitPoison(player) {
+        if (!this.mesh || !player) return;
+        const poisonGeo = new THREE.SphereGeometry(0.2, 8, 8);
+        const poisonMat = new THREE.MeshBasicMaterial({
+            color: 0x33ff33,
+            transparent: true,
+            opacity: 0.7,
+            emissive: 0x22aa22
+        });
+        const poison = new THREE.Mesh(poisonGeo, poisonMat);
+
+        poison.position.copy(this.mesh.position);
+        poison.position.y += 1.5; // Fire from mouth
+
+        const targetPos = player.position.clone();
+        const direction = new THREE.Vector3()
+            .subVectors(targetPos, poison.position)
+            .normalize();
+
+        this.scene.add(poison);
+
+        const dist = poison.position.distanceTo(targetPos);
+        const timeToHit = Math.min(500, dist * 40);
+        const startPos = poison.position.clone();
+        const animStart = Date.now();
+
+        const animPoison = () => {
+            const age = Date.now() - animStart;
+            if (age > timeToHit) {
+                // Poison hit — apply DOT
+                window.dispatchEvent(new CustomEvent('player-poisoned', { detail: { damage: 5, duration: 5 } }));
+                this.scene.remove(poison);
+                poison.geometry.dispose();
+                poison.material.dispose();
+                return;
+            }
+            const t = age / timeToHit;
+            poison.position.lerpVectors(startPos, targetPos, t);
+            // Parabolic arc
+            poison.position.y += Math.sin(t * Math.PI) * 2.0;
+            // Pulsing glow effect
+            poison.scale.setScalar(1 + Math.sin(age * 0.02) * 0.2);
+            requestAnimationFrame(animPoison);
+        };
+        animPoison();
+    }
+
+    showMuzzleFlash() {
+        if (!this.weaponMesh) return;
+        if (!this.muzzleFlashProxy) {
+            this.muzzleFlashProxy = new THREE.PointLight(0xffaa55, 2, 8);
+            this.weaponMesh.add(this.muzzleFlashProxy);
+            this.muzzleFlashProxy.position.set(0, 0, 0.4);
+        }
+        this.muzzleFlashProxy.visible = true;
+        audioSystem.playShootAK(); // Recycle AK sound for zombie gun
+        setTimeout(() => { if (this.muzzleFlashProxy) this.muzzleFlashProxy.visible = false; }, 50);
     }
 
     die() {
@@ -677,6 +1151,40 @@ export class Zombie {
             this.deathStartY = this.mesh.position.y || 0;
         }
         setTimeout(() => { if (this.mesh) { this.mesh.visible = false; this.mesh.position.set(0, -100, 0); } }, 3000);
+
+        // AAA Blood Decal (Ground Splat)
+        this.addBloodDecal();
+    }
+
+    addBloodDecal() {
+        const decalGeo = new THREE.PlaneGeometry(1.5 + Math.random(), 1.5 + Math.random());
+        const decalMat = new THREE.MeshBasicMaterial({
+            color: 0x330000,
+            transparent: true,
+            opacity: 0.6,
+            depthWrite: false
+        });
+        const decal = new THREE.Mesh(decalGeo, decalMat);
+        decal.rotation.x = -Math.PI / 2;
+        decal.position.copy(this.mesh.position);
+        decal.position.y = 0.02; // Just above ground
+        decal.rotation.z = Math.random() * Math.PI * 2;
+        this.scene.add(decal);
+
+        // Fading out over time
+        setTimeout(() => {
+            let op = 0.6;
+            const fade = setInterval(() => {
+                op -= 0.05;
+                decal.material.opacity = op;
+                if (op <= 0) {
+                    clearInterval(fade);
+                    this.scene.remove(decal);
+                    decal.geometry.dispose();
+                    decal.material.dispose();
+                }
+            }, 100);
+        }, 10000);
     }
 
     // Static variable equivalent for performance
@@ -834,7 +1342,7 @@ export class ZombieManager {
     }
 
     getScaledSpeed(wave) {
-        return 0.03 + wave * 0.002;
+        return 0.04 + wave * 0.003; // Faster scaling 
     }
 
     getBossHealth(wave) {
@@ -928,9 +1436,10 @@ export class ZombieManager {
             }
         }
 
-        // Update all zombies
+        // Update all zombies (passing all zombie meshes for separation)
+        const zombieMeshes = this.zombies.filter(z => !z.isDead).map(z => z.mesh).concat(walls);
         this.zombies.forEach(z => {
-            z.update(delta, player, house, fence, onAttack, walls);
+            z.update(delta, player, house, fence, onAttack, zombieMeshes);
             if (z.isDead && !z.dropProcessed && !z.mesh.visible) {
                 this.spawnLoot(z.deathPosition.x, z.deathPosition.z);
                 z.dropProcessed = true;

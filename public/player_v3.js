@@ -249,10 +249,10 @@ export class Player {
         this.recoilOffset = 0;
         this.isADS = false;
         this.fovTarget = 75;
-        this.reloadAnim = 0;
-        this.hurtAnim = 0;
         this.deathAnim = 0;
         this.victoryAnim = 0;
+        this.stepTimer = 0;
+        this.stepInterval = 0.35;
 
         // Grenade Model Detail
         const grenadeGeo = new THREE.SphereGeometry(0.15, 12, 12);
@@ -459,6 +459,13 @@ export class Player {
             this.leftLeg.rotation.x = -legSwing * 0.9;
             this.rightLeg.position.z = -legSwing * 0.25;
             this.rightLeg.rotation.x = legSwing * 0.9;
+
+            // Footstep Sound Logic
+            this.stepTimer -= delta * speedMult;
+            if (this.stepTimer <= 0) {
+                audioSystem.playFootstep();
+                this.stepTimer = this.stepInterval;
+            }
 
             // Dust particles when running
             if (speedMult > 1.0 && Math.random() < 0.2) {

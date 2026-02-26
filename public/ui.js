@@ -59,13 +59,20 @@ export class GameUI {
         this.xpFill = document.getElementById('xp-fill');
         this.xpLevel = document.getElementById('xp-level');
         this.skillPoints = document.getElementById('skill-points');
+        this.comboPanel = document.getElementById('combo-panel');
+        this.comboCountText = document.getElementById('combo-count');
         this._hitTimeout = null;
+
+        window.addEventListener('hit-marker', (e) => this.showHitmarker(e.detail?.isHeadshot));
     }
 
-    showHitmarker() {
+    showHitmarker(isHeadshot = false) {
         if (!this.hitmarker) return;
         this.hitmarker.classList.remove('hidden');
         this.hitmarker.classList.remove('hit-shake');
+        this.hitmarker.style.borderColor = isHeadshot ? '#ff2222' : '#ffffff';
+        this.hitmarker.style.transform = isHeadshot ? 'translate(-50%, -50%) scale(1.5)' : 'translate(-50%, -50%) scale(1)';
+
         void this.hitmarker.offsetWidth; // Trigger reflow
         this.hitmarker.classList.add('hit-shake');
         audioSystem.playHitMarker();
@@ -73,6 +80,7 @@ export class GameUI {
         if (this._hitTimeout) clearTimeout(this._hitTimeout);
         this._hitTimeout = setTimeout(() => {
             this.hitmarker.classList.add('hidden');
+            this.hitmarker.style.transform = '';
         }, 150);
     }
 
@@ -135,6 +143,20 @@ export class GameUI {
         if (this.xpFill) this.xpFill.style.width = `${percent}%`;
         if (this.xpLevel) this.xpLevel.textContent = `LVL ${level}`;
         if (this.skillPoints) this.skillPoints.textContent = `SP ${points}`;
+    }
+
+    updateCombo(count) {
+        if (!this.comboPanel || !this.comboCountText) return;
+        if (count > 0) {
+            this.comboCountText.textContent = count;
+            this.comboPanel.classList.add('active');
+
+            // Pop animation
+            this.comboCountText.style.transform = 'scale(1.4)';
+            setTimeout(() => { if (this.comboCountText) this.comboCountText.style.transform = 'scale(1)'; }, 100);
+        } else {
+            this.comboPanel.classList.remove('active');
+        }
     }
 
     updateRage(active, cooldown, duration) {

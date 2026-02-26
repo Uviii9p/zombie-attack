@@ -67,38 +67,48 @@ class Game {
         this.achievements = new Set(JSON.parse(localStorage.getItem('ds_achievements') || '[]'));
         this.skillLevels = { damage: 0, reload: 0, vitality: 0 };
 
+        this.clock = new THREE.Clock();
+        this.combo = 0;
+        this.comboTimer = 0;
+
         this.init().catch(e => console.error("Game Init Error:", e));
     }
 
     async init() {
         this.updateLoadingProgress(10, 'Booting renderer...');
 
-        // High-end Renderer Settings
+        // Cinematic Renderer Settings (LAG FREE)
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = this.isMobile ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+        this.renderer.shadowMap.enabled = !this.isMobile;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.toneMappingExposure = this.isMobile ? 0.95 : 1.0;
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.isMobile ? 1.3 : 2));
+        this.renderer.toneMappingExposure = 1.25;
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.isMobile ? 1.1 : 1.5));
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
         const container = document.getElementById('game-container');
         if (container) container.prepend(this.renderer.domElement);
 
-        // Realistic Environment - Improved Visibility
-        this.scene.background = new THREE.Color(0x0a0c10);
-        this.scene.fog = new THREE.FogExp2(0x0a0c10, 0.005); // Reduced fog density
+        // Cinematic Environment (Fog + Glow)
+        this.scene.background = new THREE.Color(0x05070a);
+        this.scene.fog = new THREE.FogExp2(0x05070a, 0.015);
 
         this.updateLoadingProgress(30, 'Preparing world...');
-        this.ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // Increased ambient light
+        this.ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
         this.scene.add(this.ambientLight);
-        this.hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.4); // Add hemi light for ground
+
+        this.hemiLight = new THREE.HemisphereLight(0xffffff, 0x111122, 0.4);
         this.scene.add(this.hemiLight);
 
-        this.sun = new THREE.DirectionalLight(0xaabbff, 0.8); // Brighter moonlight
-        this.sun.position.set(50, 100, 50);
-        this.sun.castShadow = !this.isMobile || window.innerWidth > 900;
-        this.sun.shadow.mapSize.width = this.isMobile ? 1024 : 2048;
-        this.sun.shadow.mapSize.height = this.isMobile ? 1024 : 2048;
+        this.sun = new THREE.DirectionalLight(0x7df9ff, 1.2); // Cyan moon light
+        this.sun.position.set(20, 50, 20);
+        this.sun.castShadow = !this.isMobile;
+        this.sun.shadow.mapSize.width = 1024;
+        this.sun.shadow.mapSize.height = 1024;
+        this.sun.shadow.camera.left = -50;
+        this.sun.shadow.camera.right = 50;
+        this.sun.shadow.camera.top = 50;
+        this.sun.shadow.camera.bottom = -50;
         this.scene.add(this.sun);
 
         const groundGeo = new THREE.PlaneGeometry(2000, 2000);
@@ -121,10 +131,10 @@ class Game {
         this.createAtmosphereFX();
 
         // Shake properties
+        // Shake properties
         this.shakeTime = 0;
         this.shakeIntensity = 0;
-        this.baseCamPos = new THREE.Vector3();
-
+        this.cinematicDustTrails = null;
         this.dustParticles = [];
 
         // Initialize Systems
@@ -375,10 +385,13 @@ class Game {
         });
 
         window.addEventListener('screen-shake', (e) => {
+            const { intensity = 0.5, duration = 0.3 } = e.detail || {};
+            this.shakeIntensity = intensity;
+            this.shakeTime = duration;
             const container = document.getElementById('game-container');
             if (container) {
                 container.classList.add('screen-shake');
-                setTimeout(() => container.classList.remove('screen-shake'), 500);
+                setTimeout(() => container.classList.remove('screen-shake'), duration * 1000);
             }
         });
 
@@ -433,6 +446,32 @@ class Game {
             });
         });
 
+        // ======= ZOMBIE BULLET HIT EVENT =======
+        window.addEventListener('zombie-bullet-hit', (e) => {
+            const { damage } = e.detail || {};
+            if (damage && this.gameStarted && !this.isGameOver) {
+                this.damage('player', damage);
+            }
+        });
+
+        // ======= POISON DOT SYSTEM =======
+        this._poisonActive = false;
+        this._poisonTimer = 0;
+        this._poisonDuration = 0;
+        this._poisonDamage = 0;
+        this._poisonTickTimer = 0;
+
+        window.addEventListener('player-poisoned', (e) => {
+            const { damage = 5, duration = 5 } = e.detail || {};
+            this._poisonActive = true;
+            this._poisonDuration = duration;
+            this._poisonTimer = 0;
+            this._poisonDamage = damage;
+            this._poisonTickTimer = 0;
+            // Green poison screen tint
+            document.body.classList.add('poisoned');
+        });
+
         this.updateLoadingProgress(100, 'Ready');
         setTimeout(() => document.getElementById('loading-screen')?.classList.add('hidden'), 180);
     }
@@ -442,6 +481,12 @@ class Game {
         const text = document.getElementById('loading-label');
         if (fill) fill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
         if (text && label) text.textContent = label;
+    }
+
+    addCombo() {
+        this.combo++;
+        this.comboTimer = 3.5;
+        this.ui.updateCombo(this.combo);
     }
 
     enforceMobileSafetyGuards() {
@@ -1549,6 +1594,55 @@ class Game {
             envGroup.add(cactus);
         }
 
+        // Leafless Creepy Trees
+        const treeCount = this.isMobile ? 40 : 80;
+        const trunkGeo = new THREE.CylinderGeometry(0.5, 0.8, 6, 6);
+        const branchGeo = new THREE.CylinderGeometry(0.2, 0.4, 4, 5);
+        const treeMat = new THREE.MeshStandardMaterial({ color: 0x221a14, roughness: 0.9, metalness: 0 }); // Dark dead wood
+
+        for (let i = 0; i < treeCount; i++) {
+            const x = (Math.random() - 0.5) * 450;
+            const z = (Math.random() - 0.5) * 450;
+            // Keep well clear of the player base
+            if (new THREE.Vector2(x, z).length() < 35) continue;
+
+            const tree = new THREE.Group();
+            tree.position.set(x, 0, z);
+
+            // Main trunk
+            const trunk = new THREE.Mesh(trunkGeo, treeMat);
+            trunk.position.y = 3;
+            // Slight random tilt
+            trunk.rotation.x = (Math.random() - 0.5) * 0.2;
+            trunk.rotation.z = (Math.random() - 0.5) * 0.2;
+            trunk.castShadow = !this.isMobile;
+            trunk.receiveShadow = true;
+            tree.add(trunk);
+
+            // Random branches
+            const numBranches = 2 + Math.floor(Math.random() * 3);
+            for (let b = 0; b < numBranches; b++) {
+                const branch = new THREE.Mesh(branchGeo, treeMat);
+                // Attach high up on trunk
+                branch.position.y = 3 + Math.random() * 2.5;
+
+                // Angle outward and slightly upward
+                const angleY = Math.random() * Math.PI * 2;
+                const angleOut = Math.PI / 4 + Math.random() * 0.4;
+
+                branch.rotation.set(0, angleY, 0); // Point in direction
+                branch.rotateX(angleOut); // Tilt outward
+
+                // Move out slightly so they don't clip entirely inside trunk center
+                branch.translateY(1.5);
+
+                branch.castShadow = !this.isMobile;
+                tree.add(branch);
+            }
+
+            envGroup.add(tree);
+        }
+
         this.scene.add(envGroup);
     }
 
@@ -2067,6 +2161,12 @@ class Game {
             this.ui.updatePlayerHealth((this.player.health / this.player.maxHealth) * 100);
             const critical = (this.player.health / this.player.maxHealth) < 0.28;
             document.body.classList.toggle('critical-health', critical);
+
+            // AAA Damage Feedback
+            document.body.classList.add('damage-flash');
+            setTimeout(() => document.body.classList.remove('damage-flash'), 150);
+            window.dispatchEvent(new CustomEvent('screen-shake', { detail: { intensity: 0.4 * (a / 20), duration: 0.2 } }));
+
             if (critical && this.isMobile && navigator.vibrate) navigator.vibrate([8, 30, 8]);
         } else if (t === 'fence') {
             this.fence.health -= a; this.ui.updateFenceHealth((this.fence.health / this.fence.maxHealth) * 100);
@@ -2100,7 +2200,7 @@ class Game {
         this.sun.color.lerpColors(new THREE.Color(0xaabbff), new THREE.Color(0xffffee), progress);
 
         // Ambient Intensity
-        this.hemiLight.intensity = 0.2 + (progress * 0.8);
+        this.ambientLight.intensity = 0.2 + (progress * 0.8);
 
         // Star visibility (only at night)
         if (this.stars) {
@@ -2123,8 +2223,21 @@ class Game {
 
     loop() {
         requestAnimationFrame(() => this.loop());
-        if (this.timeScale < 1) this.timeScale = Math.min(1, this.timeScale + 0.035);
-        const d = 0.016 * this.timeScale;
+
+        // AAA Slow-Motion Recovery
+        if (this.timeScale < 1.0) {
+            this.timeScale = Math.min(1.0, this.timeScale + 0.015);
+        }
+
+        const d = Math.min(0.05, this.clock.getDelta() * this.timeScale);
+
+        if (this.comboTimer > 0) {
+            this.comboTimer -= d;
+            if (this.comboTimer <= 0) {
+                this.combo = 0;
+                this.ui.updateCombo(0);
+            }
+        }
 
         if (this.rage.cooldown > 0) this.rage.cooldown = Math.max(0, this.rage.cooldown - d);
         if (this.rage.active) {
@@ -2167,6 +2280,16 @@ class Game {
             this.fireParticles.geometry.attributes.position.needsUpdate = true;
             this.fireParticles.material.opacity = 0.35 + Math.sin(Date.now() * 0.006) * 0.25;
         }
+        if (this.cinematicDustTrails && this.cinematicDustTrails.geometry && this.cinematicDustTrails.geometry.attributes.position) {
+            const arr = this.cinematicDustTrails.geometry.attributes.position.array;
+            const time = Date.now() * 0.0005;
+            for (let i = 0; i < arr.length; i += 3) {
+                arr[i] += Math.sin(time + i) * 0.02; // slow drift
+                arr[i + 1] += 0.005; // tiny rise
+                if (arr[i + 1] > 15) arr[i + 1] = 0;
+            }
+            this.cinematicDustTrails.geometry.attributes.position.needsUpdate = true;
+        }
 
         this.lightningTimer -= d;
         if (this.lightningTimer <= 0 && Math.random() < 0.02) {
@@ -2184,6 +2307,13 @@ class Game {
             this.zombieManager.hitZombie(z, finalDmg, () => {
                 this.addXP(18);
             }, hitInfo);
+
+            // AAA Slow-Motion on Headshot
+            if (hitInfo?.isHeadshot && z.health <= 0) {
+                this.timeScale = 0.15; // Trigger dramatic slow-mo
+                window.dispatchEvent(new CustomEvent('screen-shake', { detail: { intensity: 0.8, duration: 0.4 } }));
+            }
+
             if (hitInfo?.point) this.showDamageNumber(hitInfo.point, finalDmg, false);
             if (this.multiplayer.isActive) this.multiplayer.sendZombieHit(idx, dmg);
         }, () => {
@@ -2217,7 +2347,7 @@ class Game {
         this.zombieManager.update(d, this.player.group, this.house, this.fence,
             (t, a) => this.damage(t, a),
 
-            () => { this.addXP(12); },
+            () => { this.addXP(12); this.addCombo(); },
             (type, amt) => {
                 this.player.collectLoot(type, amt);
                 this.ui.updateCoins(this.player.coins);
@@ -2227,6 +2357,27 @@ class Game {
             },
             [...houseParts, ...fenceParts]
         );
+
+        // ======= POISON DOT TICK PROCESSING =======
+        if (this._poisonActive) {
+            this._poisonTimer += d;
+            this._poisonTickTimer += d;
+
+            // Tick damage every 1 second
+            if (this._poisonTickTimer >= 1.0) {
+                this._poisonTickTimer -= 1.0;
+                this.damage('player', this._poisonDamage);
+            }
+
+            // Poison expired
+            if (this._poisonTimer >= this._poisonDuration) {
+                this._poisonActive = false;
+                this._poisonTimer = 0;
+                this._poisonDuration = 0;
+                this._poisonDamage = 0;
+                document.body.classList.remove('poisoned');
+            }
+        }
 
         // Update Soldiers
         this.soldiers = this.soldiers.filter(s => !s.isDead);

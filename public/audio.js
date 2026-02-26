@@ -262,6 +262,17 @@ export class AudioSystem {
         this.playTone(1200, 'sine', 0.1, 0.2);
     }
 
+    playFootstep() {
+        if (!this.isInitialized || this.muted) return;
+        this.playNoise(0.04, 'pink', 0.2); // Soft crunch
+        this.playTone(60, 'sine', 0.05, 0.3); // Thump
+    }
+
+    playZombieStep() {
+        if (!this.isInitialized || this.muted) return;
+        this.playNoise(0.03, 'pink', 0.12); // Soft sand step
+    }
+
     playHitMarker() {
         if (!this.isInitialized || this.muted) return;
         this.playTone(1800, 'sine', 0.05, 0.15); // Very short high pitch click

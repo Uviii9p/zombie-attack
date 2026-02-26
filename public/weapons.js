@@ -69,11 +69,12 @@ export class WeaponSystem {
         this.muzzleLight.visible = false;
         this.scene.add(this.muzzleLight);
 
-        const flashGeo = new THREE.SphereGeometry(0.12, 8, 8);
-        const flashMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-        this.muzzleFlash = new THREE.Mesh(flashGeo, flashMat);
-        this.muzzleFlash.visible = false;
+        this.muzzleFlash = new THREE.Group();
         this.scene.add(this.muzzleFlash);
+
+        this.shells = [];
+        this.shellGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.05, 8);
+        this.shellMat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.9, roughness: 0.2 });
 
         this.explosions = [];
         this.explosionGeo = new THREE.SphereGeometry(3, 16, 16);
@@ -209,6 +210,17 @@ export class WeaponSystem {
             this.muzzleLight.visible = false;
         }, 50);
 
+        // Shell Ejection
+        if (this.currentWeaponKey !== 'RPG' && this.currentWeaponKey !== 'Grenade') {
+            this.ejectShell(flashPos, direction);
+        }
+
+        // AAA Camera Recoil
+        if (this.camera) {
+            this.camera.rotation.x += (Math.random() + 0.5) * weapon.recoil;
+            this.camera.rotation.y += (Math.random() - 0.5) * weapon.recoil * 0.5;
+        }
+
         const tracerEnd = flashPos.clone().add(direction.clone().multiplyScalar(Math.min(weapon.range || 80, 70)));
         this.spawnTracer(flashPos, tracerEnd, this.currentWeaponKey === 'Sniper' ? 0xfff4aa : 0xffaa55);
 
@@ -270,12 +282,50 @@ export class WeaponSystem {
                     const obj = intersects[0].object;
                     const isHeadshot = !!(obj.userData && obj.userData.hitZone === 'head');
                     onHit(zombie, weapon.damage, { isHeadshot, knockback: direction, point: intersects[0].point });
+
+                    // Dispatch hitmarker event
+                    window.dispatchEvent(new CustomEvent('hit-marker', { detail: { isHeadshot } }));
+
                     if (onHitAny) onHitAny();
+                }
+            } else {
+                // Environment Hit (Ground / Walls)
+                const envIntersects = raycaster.intersectObjects(this.scene.children, true);
+                const firstEnv = envIntersects.find(i => !zombieMeshes.includes(i.object) && i.object !== this.muzzleFlash && i.object !== this.muzzleLight && i.object.userData.type !== 'zombie');
+
+                if (firstEnv) {
+                    this.createDustPuff(firstEnv.point);
+                    audioSystem.playImpactVariation();
                 }
             }
         }
 
         return weapon;
+    }
+
+    createDustPuff(point) {
+        const count = 5;
+        const mat = new THREE.MeshBasicMaterial({ color: 0x998877, transparent: true, opacity: 0.8 });
+        const geo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+
+        for (let i = 0; i < count; i++) {
+            const p = new THREE.Mesh(geo, mat);
+            p.position.copy(point);
+            this.scene.add(p);
+
+            const vel = new THREE.Vector3((Math.random() - 0.5) * 0.1, Math.random() * 0.2, (Math.random() - 0.5) * 0.1);
+            const start = Date.now();
+            const anim = () => {
+                if (Date.now() - start > 600) {
+                    this.scene.remove(p); p.geometry.dispose(); p.material.dispose(); return;
+                }
+                p.position.add(vel);
+                p.scale.multiplyScalar(0.95);
+                p.material.opacity -= 0.02;
+                requestAnimationFrame(anim);
+            };
+            anim();
+        }
     }
 
     reload() {
@@ -312,5 +362,43 @@ export class WeaponSystem {
         const line = new THREE.Line(geom, mat);
         this.scene.add(line);
         this.tracers.push({ line, life: 1.0 });
+    }
+
+    ejectShell(pos, dir) {
+        const shell = new THREE.Mesh(this.shellGeo, this.shellMat);
+        shell.position.copy(pos);
+        shell.rotation.set(Math.random(), Math.random(), Math.random());
+        this.scene.add(shell);
+
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+
+        const velocity = right.clone().multiplyScalar(0.12 + Math.random() * 0.08)
+            .add(up.clone().multiplyScalar(0.15))
+            .add(dir.clone().multiplyScalar(-0.05));
+
+        const angularVel = new THREE.Vector3(Math.random() * 0.5, Math.random() * 0.5, Math.random() * 0.5);
+
+        const start = Date.now();
+        const anim = () => {
+            const age = Date.now() - start;
+            if (age > 2000) {
+                this.scene.remove(shell);
+                return;
+            }
+            shell.position.add(velocity);
+            shell.rotation.x += angularVel.x;
+            shell.rotation.y += angularVel.y;
+            velocity.y -= 0.01; // Gravity
+
+            if (shell.position.y < 0.05) {
+                shell.position.y = 0.05;
+                velocity.set(0, 0, 0);
+                angularVel.set(0, 0, 0);
+            } else {
+                requestAnimationFrame(anim);
+            }
+        };
+        anim();
     }
 }
